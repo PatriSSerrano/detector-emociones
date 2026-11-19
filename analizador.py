@@ -96,7 +96,17 @@ def _buscar_palabra(palabra):
     for raiz, emocion, peso in RAICES:
         if palabra.startswith(raiz) and emocion not in encontradas:
             encontradas[emocion] = peso
-    return list(encontradas.items())
+    if encontradas:
+        return list(encontradas.items())
+    # Superlativo en -ísimo: "tristísima" -> "triste" con más fuerza (x1.5)
+    m = re.match(r"(\w+?)(c)?isim[oa]s?$", palabra)
+    if m:
+        base = m.group(1) + ("z" if m.group(2) else "")          # "felicísima" -> "feliz"
+        for candidata in (base, base + "e", base + "o", base + "a"):
+            hallazgos = _buscar_palabra(candidata) if candidata != palabra else []
+            if hallazgos:
+                return [(e, p * 1.5) for e, p in hallazgos]
+    return []
 
 
 def _buscar_frase(tokens, i):

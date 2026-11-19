@@ -131,7 +131,9 @@ class TestEstilo(unittest.TestCase):
 
 
 class TestRespuesta(unittest.TestCase):
-    PROHIBIDAS = {"joder", "mierda", "puta", "gilipollas", "fracasado", "desastre", "inutil",
+    # Los tacos SÍ se pueden copiar (es su registro). Lo que nunca se copia son los
+    # insultos y el pensamiento absolutista (eso es negatividad, no registro).
+    PROHIBIDAS = {"gilipollas", "fracasado", "desastre", "inutil", "imbecil",
                   "siempre", "nunca", "nadie", "nada", "todo", "mazo"}
 
     def respuesta(self, texto):
@@ -146,6 +148,32 @@ class TestRespuesta(unittest.TestCase):
                       "tia estoy mazo rayada, nada me sale bien"]:
             _, palabras = self.respuesta(texto)
             self.assertEqual(palabras & self.PROHIBIDAS, set(), texto)
+
+    def test_copia_tacos_si_la_persona_los_usa(self):
+        r, _ = self.respuesta("estoy hasta la polla de mi jefe")
+        self.assertIn("hasta la polla de tu jefe", r)
+
+    def test_expresiones_idiomaticas(self):
+        casos = {"estoy hasta el moño": "ira", "estoy más sola que la una": "soledad",
+                 "me cago de miedo": "miedo", "la he cagado con mi novia": "culpa",
+                 "me lo he pasado bomba": "alegria", "me he quedado a cuadros": "sorpresa",
+                 "voy con el agua al cuello": "ansiedad", "qué bajón": "tristeza",
+                 "estoy colada por Marta": "amor", "qué corte": "verguenza",
+                 "estoy tristísima": "tristeza"}
+        for texto, emocion in casos.items():
+            self.assertEqual(analizar(texto).dominante, emocion, texto)
+
+    def test_expresion_no_es_tema(self):
+        r, _ = self.respuesta("estoy hasta la polla")
+        self.assertNotIn("lo de la polla", r)
+
+    def test_vocativo_y_cierre(self):
+        r, _ = self.respuesta("tía me han dado el trabajo!! estoy de puta madre xoxo")
+        self.assertIn("tía", r)
+        self.assertTrue(r.endswith("xoxo"))
+
+    def test_mi_tia_no_es_vocativo(self):
+        self.assertIsNone(analizar("he ido a ver a mi tía y estoy contenta").estilo.vocativo)
 
     def test_refleja_su_expresion(self):
         r, _ = self.respuesta("tia estoy mazo rayada con lo del examen")

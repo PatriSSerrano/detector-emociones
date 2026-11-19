@@ -74,14 +74,18 @@ SENALES = {
         [r"\bno tengo esperanza\b", r"\bno hay salida\b", r"\bnada va a cambiar\b",
          r"\bnunca va a cambiar\b", r"\bno tiene sentido\b", r"\bno sirve de nada\b",
          r"\bpara que seguir\b", r"\bya no puedo mas\b", r"\bno puedo mas\b",
-         r"\bno aguanto mas\b", r"\btodo da igual\b", r"\bnada importa\b"],
+         r"\bno aguanto mas\b", r"\btodo da igual\b", r"\bnada importa\b",
+         r"\btodo me da igual\b", r"\bme da todo igual\b", r"\bme la suda todo\b",
+         r"\bno levanto cabeza\b", r"\bhe tocado fondo\b"],
         "Creer que las cosas no van a mejorar. Beck la señaló como uno de los "
         "indicadores más importantes de riesgo emocional.",
     ),
     "minimizacion": (
         "Posible minimización",
         [r"\bestoy bien\b", r"\bno pasa nada\b", r"\bda igual\b", r"\bno importa\b",
-         r"\bno es nada\b", r"\bno es para tanto\b", r"\btampoco es para tanto\b"],
+         r"\bno es nada\b", r"\bno es para tanto\b", r"\btampoco es para tanto\b",
+         r"\bme la (suda|pela|trae floja|refanfinfla|sopla)\b",
+         r"\bme importa (una mierda|un pimiento|un bledo|un carajo|un pito|tres pepinos|un huevo)\b"],
         "Quitar importancia a lo que se siente mientras el resto del mensaje expresa "
         "malestar. A veces es una forma de protegerse o de no preocupar a los demás.",
     ),
@@ -201,6 +205,10 @@ RIESGO_ALTO = [
     r"\bautolesi\w*", r"\bcortarme\b(?! el pelo| las unas| el flequillo)",
     r"\bmejor (estarian|estaria todo|estarian todos) sin mi\b", r"\bojala no despert\w*",
     r"\bdesaparecer para siempre\b", r"\bno vale la pena vivir\b",
+    # formas coloquiales (se prefiere un falso positivo a dejar pasar un caso real)
+    r"\bme quiero matar\b", r"\bmatarme\b(?! a )", r"\bpegarme un tiro\b",
+    r"\btirarme (por (la|una) ventana|por un puente|por el balcon|a las vias)\b",
+    r"\bquitarme de en medio\b", r"\bno quiero despertar(me)?\b", r"\bdormirme y no despertar\b",
     r"\bkill myself\b", r"\bwant to die\b", r"\bend my life\b", r"\bself.?harm\b",
 ]
 

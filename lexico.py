@@ -135,6 +135,12 @@ EMOCIONES = {
     ],
 }
 
+# Añadimos las expresiones idiomáticas del español (expresiones.py)
+from expresiones import expresiones_expandidas  # noqa: E402
+
+for _emocion, _lista in expresiones_expandidas().items():
+    EMOCIONES[_emocion].extend(_lista)
+
 # ---------------------------------------------------------------------------
 # Modelo circumplejo de Russell (1980): toda emoción se puede situar en dos ejes
 #   VALENCIA  (-1 desagradable ... +1 agradable)
@@ -198,6 +204,9 @@ INTENSIFICADORES = {
     "muy": 1.5, "mucho": 1.5, "muchisimo": 2.0, "super": 1.7, "demasiado": 1.7,
     "tan": 1.5, "tanto": 1.5, "bastante": 1.3, "realmente": 1.4, "totalmente": 1.6,
     "increiblemente": 1.8, "extremadamente": 2.0, "very": 1.5, "so": 1.5, "really": 1.4,
+    # coloquiales
+    "mazo": 1.6, "mogollon": 1.6, "cantidad": 1.4, "tela": 1.4, "hiper": 1.6, "requete": 1.6,
+    "jodidamente": 1.7, "full": 1.5, "re": 1.3, "tope": 1.5,
     "poco": 0.5, "algo": 0.6, "ligeramente": 0.5, "apenas": 0.4, "little": 0.5,
 }
 

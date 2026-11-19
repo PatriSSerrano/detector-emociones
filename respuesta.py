@@ -60,7 +60,7 @@ REFLEJOS = {
     "serenidad": ("{estas} en calma", "{estas} tranqui", "con"),
     "amor":      ("se nota el cariño", "se nota el cariño", "por"),
     "esperanza": ("{tienes} ilusión", "{tienes} ganas", "con"),
-    "sorpresa":  ("no {te} lo esperabas", "{te} ha pillado por sorpresa", ""),
+    "sorpresa":  ("no {te} esperabas", "{te} ha pillado por sorpresa", ""),
     "tristeza":  ("{estas} pasando un momento triste", "{estas} de bajón", "con"),
     "soledad":   ("echas en falta a alguien con quien contar",
                   "{te} falta gente con la que hablar", None),
@@ -77,6 +77,7 @@ REFLEJOS_USTED = {"soledad": "echa en falta a alguien con quien contar"}
 # Cuando no hay tema, algunas frases quedan cojas ("te ha alegrado."): alternativas
 SIN_TEMA = {
     "alegria": ("se nota la alegría", "{estas} a tope"),
+    "sorpresa": ("no {te} lo esperabas", "{te} ha pillado por sorpresa"),
     "ira": ("se nota el enfado", "{te} ha sentado mal"),
     "miedo": ("hay algo que {te} da miedo", "hay algo que {te} da miedo"),
     "asco": ("hay algo que {te} produce rechazo", "hay algo que {te} da mucho rechazo"),
@@ -89,6 +90,8 @@ SIN_TEMA = {
 REENCUADRES = {
     "minimizacion": ("Dices que estás bien, aunque no parece que del todo.",
                      "Dice que está bien, aunque no parece que del todo."),
+    "minimizacion_igual": ("Dices que te da igual, aunque por cómo lo cuentas parece que sí te importa.",
+                           "Dice que le da igual, aunque por cómo lo cuenta parece que sí le importa."),
     "generalizacion_personas": (
         "Sentirte así ahora no quiere decir que no haya personas que puedan entenderte.",
         "Sentirse así ahora no quiere decir que no haya personas que puedan entenderle."),
@@ -217,12 +220,22 @@ def _valencia(a):
     return "positiva" if a.valencia > 0.15 else "negativa" if a.valencia < -0.15 else "neutral"
 
 
-def _apertura(a, turno):
+def _con_vocativo(frase, vocativo):
+    """'Uf, vale.' + 'tía' -> 'Uf, vale, tía.'  ·  '¡Qué bien!' + 'bro' -> '¡Qué bien, bro!'"""
+    if not vocativo:
+        return frase
+    final = frase[-1] if frase[-1] in ".!?" else ""
+    cuerpo = frase[:-1] if final else frase
+    return f"{cuerpo}, {vocativo}{final or '.'}"
+
+
+def _apertura_base(a, turno):
     e, val = a.estilo, _valencia(a)
     interj = normalizar(e.interjeccion) if e.interjeccion else None
     # Reflejar su interjección, pero solo si encaja con el tono
     if interj and e.registro != "formal":
-        if val == "negativa" and interj in {"uf", "buf", "buah", "jo", "ostras"}:
+        if val == "negativa" and interj in {"uf", "buf", "buah", "jo", "ostras", "joder",
+                                            "hostia", "ostia", "ay"}:
             return f"{e.interjeccion.capitalize()}, vale."
         if val == "positiva" and interj.startswith(("jaj", "jej")):
             return "Jaja, ¡qué bien!"
@@ -233,6 +246,10 @@ def _apertura(a, turno):
     if val == "positiva" and not e.exclamaciones:       # no exagerar si la persona no lo hace
         frase = frase.replace("¡", "").replace("!", ".")
     return frase
+
+
+def _apertura(a, turno):
+    return _con_vocativo(_apertura_base(a, turno), a.estilo.vocativo)
 
 
 def _reflejo(a):
@@ -249,10 +266,15 @@ def _reflejo(a):
     # y SU preposición: "estoy agobiada con el curro" -> "estás agobiada con el curro"
     if e.autodescripcion:
         frase = f"{CONJ[t]['estas']} {e.autodescripcion}"
-        if tema:
-            frase += " " + (_como_lo_dijo(tema, t) if tema.prep in ("con", "por", "en", "sobre")
+        ya_tiene_objeto = normalizar(e.autodescripcion).split()[-2:-1] == ["por"]   # "colada por Marta"
+        if tema and not ya_tiene_objeto:
+            frase += " " + (_como_lo_dijo(tema, t) if tema.prep in ("con", "por", "en", "sobre", "de")
                             else f"con {_lo_de(tema, t)}")
         return f"{lider}, {frase}."
+
+    # Expresión con "me" + verbo: "me toca los huevos" -> "te toca los huevos"
+    if e.expresion_me:
+        return f"{lider}, {CONJ[t]['te']} {e.expresion_me[3:]}."
     else:
         neutra, coloquial, conector = REFLEJOS[a.dominante]
         if not tema and a.dominante in SIN_TEMA:
@@ -275,6 +297,10 @@ def _reencuadres(a, maximo):
         if p not in presentes:
             continue
         clave = p
+        if p == "minimizacion":
+            evid = " ".join(s.evidencias[0] for s in a.senales if s.id == p)
+            if "bien" not in normalizar(evid):
+                clave = "minimizacion_igual"        # "me la suda", "da igual"
         if p == "generalizacion":
             evid = " ".join(d.evidencias[0] for d in a.distorsiones if d.id == p)
             if any(x in normalizar(evid) for x in ("nadie", "todo el mundo")):
@@ -329,4 +355,14 @@ def generar_respuesta(a, turno=0):
     if e.longitud != "corta":
         partes += _recursos(a)
     partes.append(_pregunta(a))
-    return " ".join(p for p in partes if p) + _emoji(a)
+    return " ".join(p for p in partes if p) + _emoji(a) + _cierre(a)
+
+
+def _cierre(a):
+    """Devuelve su coletilla final ('xoxo', 'besis'...). Las risas solo si el tono es positivo."""
+    c = a.estilo.cierre
+    if not c:
+        return ""
+    if normalizar(c).startswith(("jaj", "jej", "xd")) and _valencia(a) != "positiva":
+        return ""
+    return " " + c
