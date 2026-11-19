@@ -7,8 +7,13 @@ sabrás exactamente qué.
 
 import unittest
 
-from analizador import analizar
+import analizador
 from informe import generar_informe, informe_sesion
+
+# Estos tests comprueban las REGLAS, que son deterministas. Los modelos tienen
+# sus propios tests en test_modelos.py.
+analizador.USAR_MODELOS = False
+analizar = analizador.analizar
 
 
 class TestEmociones(unittest.TestCase):

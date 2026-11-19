@@ -110,7 +110,7 @@ def generar_informe(a, mostrar_traza=False):
     # 1. Emociones
     L.append("1. EMOCIONES DETECTADAS")
     if a.dominante == "neutral":
-        L.append("   😐 Neutral: no aparecen palabras con carga emocional.")
+        L.append("   😐 Neutral: no se aprecia carga emocional.")
     else:
         L.append(f"   Principal: {_nombre(a.dominante)}"
                  + (f"   ·   Secundarias: {', '.join(_nombre(e) for e in a.secundarias)}"
@@ -118,7 +118,17 @@ def generar_informe(a, mostrar_traza=False):
         for e, pct in a.porcentajes.items():
             if pct >= 1:
                 L.append(f"     {NOMBRES[e]:<16} {_barra(pct):<20} {pct:5.1f} %")
-        L.append(f"   Intensidad emocional: {a.nivel_intensidad} ({a.intensidad:.2f} puntos por palabra)")
+        detalle = (f"{a.intensidad:.2f} puntos por palabra" if a.intensidad
+                   else "según la seguridad del modelo")
+        L.append(f"   Intensidad emocional: {a.nivel_intensidad} ({detalle})")
+    L.append(f"   Fuente: {a.fuente}")
+    if a.modelo:
+        top = lambda d: sorted(d.items(), key=lambda x: x[1], reverse=True)[:3]
+        L.append("   · Modelo de emociones (pysentimiento): " + ", ".join(
+            f"{NOMBRES.get(e, 'sin emoción')} {p:.0%}" for e, p in top(a.modelo["familias"])))
+        L.append("   · Matices (zero-shot): " + ", ".join(
+            f"{NOMBRES[e]} {p:.0%}" for e, p in top(a.modelo["matices"])))
+        L.append(f"   · Ironía: {a.modelo['ironia']:.0%}")
 
     # 2. Estado afectivo
     L += ["", "2. ESTADO AFECTIVO (modelo circumplejo de Russell)",

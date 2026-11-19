@@ -12,6 +12,8 @@ Modos:
 import argparse
 import sys
 
+import analizador
+import modelos
 from analizador import analizar
 from informe import generar_informe, informe_sesion
 from lexico import NOMBRES
@@ -33,6 +35,11 @@ def consulta_interactiva(traza):
     print("╔══════════════════════════════════════════════════════════╗")
     print("║            EMOTION ANALYSIS SYSTEM — consulta            ║")
     print("╚══════════════════════════════════════════════════════════╝")
+    if analizador.USAR_MODELOS:
+        print("Cargando los modelos de lenguaje (la primera vez se descargan, tarda un poco)...")
+        modelos.precargar()
+    else:
+        print("(Modo solo reglas: instala pysentimiento para el modo híbrido.)")
     print("Cuéntame cómo estás.")
     print("Comandos: /informe (análisis del último mensaje), /resumen (evolución), /salir")
     sesion = []
@@ -76,7 +83,10 @@ def main():
     p.add_argument("--sesion", help="archivo .txt con un mensaje por línea")
     p.add_argument("--demo", action="store_true", help="analiza frases de ejemplo")
     p.add_argument("--traza", action="store_true", help="muestra el cálculo paso a paso")
+    p.add_argument("--solo-reglas", action="store_true", help="no usa los modelos de lenguaje")
     args = p.parse_args()
+    if args.solo_reglas:
+        analizador.USAR_MODELOS = False
 
     if args.texto:
         print(generar_informe(analizar(args.texto), mostrar_traza=args.traza))

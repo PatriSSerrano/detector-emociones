@@ -62,6 +62,8 @@ EXPRESIONES = {
         ("no levanto cabeza", 3), ("no tengo ganas de nada", 3),
         ("{echando|echaba|echo} de menos", 2), ("llorando como una magdalena", 3),
         ("hundid{o|a} en la miseria", 3), ("hecho polvo", 2), ("chafad{o|a}", 2),
+        ("no puedo con mi alma", 3), ("{un|menudo|vaya} dia de perros", 2),
+        ("no puedo con mi vida", 3),
     ],
     "miedo": [
         ("me cago de miedo", 3), ("{cagado|cagada|muerto|muerta} de miedo", 3),
@@ -135,6 +137,7 @@ EXPRESIONES = {
         ("{la he liado|la lie|la he liado parda}", 2),
         ("{meti|he metido|metido|metimos} la pata", 3), ("mea culpa", 2),
         ("cargo de conciencia", 3), ("no me lo perdono", 3), ("me remuerde la conciencia", 3),
+        ("no puedo mirar{la|lo|le|los|las|te} a la cara", 3), ("se me cae la cara de verguenza", 3),
     ],
     "soledad": [
         ("mas {solo|sola} que la una", 3), ("{solo|sola} como un perro", 3),

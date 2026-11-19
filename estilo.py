@@ -127,7 +127,7 @@ class Estilo:
         if self.coloquialismos:
             partes.append("expresiones: " + ", ".join(f"«{c}»" for c in self.coloquialismos[:4]))
         if self.vulgaridad:
-            partes.append("tacos (no se copian)")
+            partes.append("usa tacos (se reflejan)" if ESPEJO_TACOS else "usa tacos (no se copian)")
         if self.autodescripcion:
             partes.append(f"se describe como «{self.autodescripcion}»")
         if self.vocativo:

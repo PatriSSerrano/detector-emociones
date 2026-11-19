@@ -12,16 +12,26 @@ Pasos:
   5. Marcadores lingüísticos, distorsiones cognitivas y riesgo (marcadores.py).
 """
 
+import os
 import re
 from dataclasses import dataclass, field
 
 from textblob import TextBlob
 
 import marcadores as M
+import modelos
 from estilo import Estilo, detectar_estilo
 from utils import expandir_abreviaturas, normalizar
 from lexico import (CIRCUMPLEJO, CONTRASTE, EMOCIONES, EMOJIS, INTENSIFICADORES,
                     NEGACIONES, NEGATIVAS, OPUESTOS, POSITIVAS)
+
+# --- Configuración del sistema híbrido -------------------------------------
+# Se pueden desactivar los modelos con la variable de entorno EMOCIONES_SOLO_REGLAS=1
+USAR_MODELOS = os.environ.get("EMOCIONES_SOLO_REGLAS") != "1" and modelos.disponible()
+PESO_REGLAS = 0.5      # cuando las reglas encuentran pruebas explícitas, hay que fiarse de ellas
+PESO_MODELOS = 0.5     # los modelos entienden más, pero explican menos
+UMBRAL_IRONIA = 0.9    # alto: el modelo de ironía da falsos positivos fuera de Twitter
+UMBRAL_NEUTRAL = 0.9   # pysentimiento da 98-99 % "sin emoción" a los textos neutros y <70 % a los emocionales
 
 PALABRAS_ES = {"el", "la", "los", "las", "de", "que", "y", "en", "es", "estoy", "me",
                "un", "una", "muy", "por", "con", "lo", "se", "mi", "pero", "esta"}
@@ -65,6 +75,8 @@ class Analisis:
     subjetividad_textblob: float = None                # solo inglés
     estilo: Estilo = None                              # cómo se expresa (estilo.py)
     apoyo_explicito: bool = False                      # "me escuchó", "hablé con..."
+    fuente: str = "reglas"                             # "reglas" o "híbrido (reglas + modelos)"
+    modelo: dict = None                                # salida de modelos.analizar_ml()
 
 
 # ---------------------------------------------------------------------------
@@ -323,7 +335,8 @@ def _marcadores(texto, normal, palabras, porcentajes):
 # ---------------------------------------------------------------------------
 # Función principal
 # ---------------------------------------------------------------------------
-def analizar(texto):
+def analizar(texto, usar_modelos=None):
+    """usar_modelos: None = según USAR_MODELOS; False = solo reglas; True = híbrido."""
     original = texto
     texto = expandir_abreviaturas(texto)      # "q" -> "que", "pq" -> "porque"...
     blob = TextBlob(texto)
@@ -343,23 +356,84 @@ def analizar(texto):
             disparadores[emocion].extend(evid)
             traza.append(f"pensamiento '{sid}' ({', '.join(evid)}) -> {emocion} +{peso * len(evid)}")
 
-    # PASO 3: porcentajes, dominante, secundarias, intensidad
+    idioma = _detectar_idioma(palabras)
+
+    # PASO 3a: porcentajes según las REGLAS
     total = sum(puntos.values())
-    porcentajes = {e: (p / total * 100 if total else 0.0) for e, p in puntos.items()}
+    pct_reglas = {e: (p / total * 100 if total else 0.0) for e, p in puntos.items()}
+
+    # PASO 3b: MODELOS de lenguaje y FUSIÓN con las reglas
+    usar = USAR_MODELOS if usar_modelos is None else usar_modelos
+    ml = modelos.analizar_ml(texto) if usar and idioma == "es" else None
+    if ml:
+        top = lambda d, k=3: ", ".join(f"{e} {v:.2f}" for e, v in
+                                       sorted(d.items(), key=lambda x: x[1], reverse=True)[:k])
+        traza.append(f"modelo pysentimiento (familia): {top(ml['familias'])}")
+        traza.append(f"modelo zero-shot (matices): {top(ml['matices'])}")
+
+        no_neutral = 1 - ml["neutral"]
+        suma_ml = sum(ml["emociones"].values()) or 1.0
+        pct_ml = {e: ml["emociones"].get(e, 0.0) / suma_ml * 100 for e in EMOCIONES}
+
+        # Ironía: solo si el modelo está MUY seguro y además hay palabras positivas
+        # literales ("genial", "maravilla"). Entonces esa "alegría" es en realidad
+        # frustración: la pasamos a ira (60 %) y tristeza (40 %), en reglas y modelo.
+        ironico = (ml["ironia"] >= UMBRAL_IRONIA and sum(pct_reglas[e] for e in POSITIVAS) > 50)
+        if ironico:
+            for d in (puntos, pct_ml):
+                positivo = sum(d.get(e, 0) for e in POSITIVAS)
+                for e in POSITIVAS:
+                    d[e] = 0.0
+                d["ira"] = d.get("ira", 0) + positivo * 0.6
+                d["tristeza"] = d.get("tristeza", 0) + positivo * 0.4
+            total = sum(puntos.values())
+            pct_reglas = {e: (p / total * 100 if total else 0.0) for e, p in puntos.items()}
+            traza.append(f"ironía {ml['ironia']:.0%} -> la 'alegría' literal pasa a frustración")
+
+        if total == 0:
+            # Las reglas no han encontrado nada (expresión que no está en las listas):
+            # decide el modelo, salvo que crea que el texto es neutral.
+            if ml["neutral"] >= UMBRAL_NEUTRAL:
+                porcentajes = {e: 0.0 for e in pct_reglas}
+            else:
+                porcentajes = pct_ml
+                traza.append("las reglas no encuentran nada -> decide el modelo")
+        else:
+            # Las dos fuentes opinan: media ponderada. El peso del modelo baja si el
+            # propio modelo cree que el texto es neutral.
+            w_m = PESO_MODELOS * no_neutral
+            porcentajes = {e: (PESO_REGLAS * pct_reglas[e] + w_m * pct_ml.get(e, 0)) / (PESO_REGLAS + w_m)
+                           for e in pct_reglas}
+        fuente = "híbrido (reglas + modelos)"
+    else:
+        porcentajes = pct_reglas
+        fuente = "reglas"
+
     porcentajes = dict(sorted(porcentajes.items(), key=lambda x: x[1], reverse=True))
     orden = list(porcentajes)
-    dominante = orden[0] if total else "neutral"
-    secundarias = [e for e in orden[1:3] if porcentajes[e] >= 15] if total else []
+    hay_emocion = sum(porcentajes.values()) > 0
+    dominante = orden[0] if hay_emocion else "neutral"
+    secundarias = [e for e in orden[1:3] if porcentajes[e] >= 15] if hay_emocion else []
 
+    # Intensidad: densidad de palabras emocionales; si solo ha opinado el modelo,
+    # su seguridad de que hay emoción.
     intensidad = total / n
-    nivel = "baja" if intensidad < 0.15 else "media" if intensidad < 0.4 else "alta"
-    if total == 0:
+    if total:
+        nivel = "baja" if intensidad < 0.15 else "media" if intensidad < 0.4 else "alta"
+    elif hay_emocion:
+        confianza = 1 - ml["neutral"]
+        nivel = "baja" if confianza < 0.6 else "media" if confianza < 0.85 else "alta"
+    else:
         nivel = "nula"
 
-    valencia, activacion, estado = _estado_afectivo(puntos)
+    valencia, activacion, estado = _estado_afectivo(porcentajes)
     senales, distorsiones, riesgo, evid_riesgo = _marcadores(texto, normal, palabras, porcentajes)
-
-    idioma = _detectar_idioma(palabras)
+    if ml and ironico:
+        senales.append(Senal(
+            "ironia", "Ironía o sarcasmo",
+            "Lo que dice no se corresponde con lo que quiere decir ('genial, otra vez lunes'). "
+            "Un psicólogo lo nota por el tono; aquí lo detecta un modelo entrenado.",
+            [f"probabilidad {ml['ironia']:.0%} según el modelo"]))
     resultado = Analisis(
         texto=texto, idioma=idioma, n_palabras=len(palabras), puntos=puntos,
         porcentajes=porcentajes, dominante=dominante, secundarias=secundarias,
@@ -369,6 +443,8 @@ def analizar(texto):
         disparadores={e: d for e, d in disparadores.items() if d}, traza=traza,
     )
     resultado.texto = original
+    resultado.fuente = fuente
+    resultado.modelo = ml
     resultado.estilo = detectar_estilo(original)    # el estilo, sobre el texto tal cual
     resultado.apoyo_explicito = bool(re.search(
         r"\b(me (apoya|apoyan|apoyo|ayuda|ayudan|ayudo|escucha|escuchan|escucho|entiende)"
