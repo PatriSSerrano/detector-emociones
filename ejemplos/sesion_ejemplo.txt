@@ -1,0 +1,7 @@
+# Sesión simulada: un mensaje por línea (las líneas con # se ignoran)
+No sé qué me pasa últimamente, estoy mal.
+En el trabajo todo me sale mal, soy un desastre y seguro que mi jefe piensa que soy un inútil.
+Por las noches no puedo dormir, le doy vueltas a todo y me agobio mucho.
+Ayer hablé con mi amiga Laura y me sentí un poco mejor, me escuchó mucho.
+Creo que voy a intentar organizarme mejor, tengo ganas de que esto salga bien.
+Hoy estoy más tranquila, aunque todavía un poco nerviosa.
