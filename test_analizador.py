@@ -109,6 +109,79 @@ class TestRiesgo(unittest.TestCase):
         self.assertEqual(analizar("Mañana voy a cortarme el pelo").riesgo, "bajo")
 
 
+class TestEstilo(unittest.TestCase):
+    def test_formal_y_usted(self):
+        e = analizar("Buenas tardes. Le escribo porque me siento preocupada por mi trabajo.").estilo
+        self.assertEqual(e.registro, "formal")
+        self.assertEqual(e.tratamiento, "usted")
+
+    def test_coloquial(self):
+        e = analizar("tia estoy mazo rayada en plan fatal xd").estilo
+        self.assertEqual(e.registro, "coloquial")
+        self.assertEqual(e.autodescripcion, "rayada")
+
+    def test_tacos_marcan_coloquial(self):
+        e = analizar("joder qué mierda de día").estilo
+        self.assertTrue(e.vulgaridad)
+        self.assertEqual(e.registro, "coloquial")
+
+    def test_abreviaturas_se_entienden(self):
+        a = analizar("seguro q suspendo el examen")
+        self.assertIn("adivinacion", {d.id for d in a.distorsiones})
+
+
+class TestRespuesta(unittest.TestCase):
+    PROHIBIDAS = {"joder", "mierda", "puta", "gilipollas", "fracasado", "desastre", "inutil",
+                  "siempre", "nunca", "nadie", "nada", "todo", "mazo"}
+
+    def respuesta(self, texto):
+        from respuesta import generar_respuesta
+        from utils import normalizar
+        r = generar_respuesta(analizar(texto))
+        return r, set(normalizar(r).replace(",", " ").replace(".", " ").split())
+
+    def test_no_copia_negatividad(self):
+        for texto in ["joder estoy de puta pena, mi jefe es un gilipollas y todo me sale mal, soy un desastre",
+                      "Siempre me pasa lo mismo, soy un fracasado, nadie me quiere",
+                      "tia estoy mazo rayada, nada me sale bien"]:
+            _, palabras = self.respuesta(texto)
+            self.assertEqual(palabras & self.PROHIBIDAS, set(), texto)
+
+    def test_refleja_su_expresion(self):
+        r, _ = self.respuesta("tia estoy mazo rayada con lo del examen")
+        self.assertIn("rayada con lo del examen", r)
+
+    def test_usted_en_formal(self):
+        r, _ = self.respuesta("Buenas tardes. Le escribo porque me siento preocupada por mi trabajo.")
+        self.assertIn("su trabajo", r)
+        self.assertIn("me cuenta", r)        # "cuenta", no "cuentas"
+        self.assertNotIn(" te ", f" {r} ")
+
+    def test_coloquial_responde_cercano(self):
+        r, _ = self.respuesta("uf tio estoy hecho polvo con el curro")
+        self.assertTrue(r.startswith("Uf"))
+        self.assertIn("hecho polvo", r)
+
+    def test_objetiva_con_adivinacion(self):
+        r, _ = self.respuesta("Mañana tengo el examen y seguro que suspendo, no voy a poder")
+        self.assertIn("todavía no ha pasado", r)
+
+    def test_emoji_solo_si_la_persona_los_usa(self):
+        con, _ = self.respuesta("Estoy muy feliz 🎉")
+        sin, _ = self.respuesta("Estoy muy feliz")
+        self.assertIn("🎉", con)
+        self.assertNotIn("🎉", sin)
+
+    def test_no_usa_emojis_negativos(self):
+        r, _ = self.respuesta("estoy fatal 😭😭")
+        self.assertNotIn("😭", r)
+
+    def test_riesgo_prioriza_seguridad(self):
+        r, _ = self.respuesta("jajaja tio a veces pienso q quiero morirme")
+        self.assertIn("024", r)
+        self.assertNotIn("Jaja", r)
+
+
 class TestSesion(unittest.TestCase):
     def test_tendencia_mejora(self):
         sesion = [analizar("Estoy muy triste"), analizar("Me siento fatal"),

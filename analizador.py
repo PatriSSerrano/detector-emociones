@@ -13,12 +13,13 @@ Pasos:
 """
 
 import re
-import unicodedata
 from dataclasses import dataclass, field
 
 from textblob import TextBlob
 
 import marcadores as M
+from estilo import Estilo, detectar_estilo
+from utils import expandir_abreviaturas, normalizar
 from lexico import (CIRCUMPLEJO, CONTRASTE, EMOCIONES, EMOJIS, INTENSIFICADORES,
                     NEGACIONES, NEGATIVAS, OPUESTOS, POSITIVAS)
 
@@ -62,17 +63,13 @@ class Analisis:
     traza: list = field(default_factory=list)          # explicación paso a paso
     polaridad_textblob: float = None                   # solo inglés
     subjetividad_textblob: float = None                # solo inglés
+    estilo: Estilo = None                              # cómo se expresa (estilo.py)
+    apoyo_explicito: bool = False                      # "me escuchó", "hablé con..."
 
 
 # ---------------------------------------------------------------------------
 # Utilidades
 # ---------------------------------------------------------------------------
-def normalizar(texto):
-    """'Alegría' -> 'alegria' (minúsculas y sin tildes)."""
-    descompuesto = unicodedata.normalize("NFD", texto.lower())
-    return "".join(c for c in descompuesto if unicodedata.category(c) != "Mn")
-
-
 def _preparar_lexico():
     exactas, raices, frases = {}, [], []
     for emocion, entradas in EMOCIONES.items():
@@ -317,6 +314,8 @@ def _marcadores(texto, normal, palabras, porcentajes):
 # Función principal
 # ---------------------------------------------------------------------------
 def analizar(texto):
+    original = texto
+    texto = expandir_abreviaturas(texto)      # "q" -> "que", "pq" -> "porque"...
     blob = TextBlob(texto)
     normal = normalizar(texto)
     palabras = [normalizar(w) for w in blob.words]
@@ -359,6 +358,11 @@ def analizar(texto):
         riesgo=riesgo, evidencias_riesgo=evid_riesgo,
         disparadores={e: d for e, d in disparadores.items() if d}, traza=traza,
     )
+    resultado.texto = original
+    resultado.estilo = detectar_estilo(original)    # el estilo, sobre el texto tal cual
+    resultado.apoyo_explicito = bool(re.search(
+        r"\b(me (apoya|apoyan|apoyo|ayuda|ayudan|ayudo|escucha|escuchan|escucho|entiende)"
+        r"|hable con|habl[eo] con|estuvo conmigo|estuvieron conmigo)\b", normal))
     if idioma == "en":   # TextBlob solo sabe calcular sentimiento en inglés
         resultado.polaridad_textblob = blob.sentiment.polarity
         resultado.subjetividad_textblob = blob.sentiment.subjectivity

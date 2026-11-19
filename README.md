@@ -29,10 +29,10 @@ $ python main.py --texto "Estoy bien, pero ya no puedo más. Siempre me pasa lo 
    • Sobregeneralización: «Siempre me pasa»
      ↳ Para reformular: ¿De verdad es *siempre*, *nunca* o *nadie*? ¿Recuerdas alguna excepción?
    • Etiquetarse: «soy un fracasado»
-5. LO QUE DIRÍA UN PSICÓLOGO
-   💬 Lo que cuentas suena a tristeza cuando dices «pero ya no puedo más». Es lógico sentirse así
-      cuando algo duele. También percibo algo de vergüenza. Aunque dices que estás bien, lo que
-      cuentas parece más difícil que eso.
+5. RESPUESTA (objetiva y adaptada a su forma de expresarse)
+   Estilo detectado: neutro · tú · mensaje media
+   💬 Entiendo. Por lo que cuentas, estás pasando un momento triste. Dices que estás bien,
+      aunque no parece que del todo. ¿Desde cuándo te sientes así?
 ```
 
 ## Instalación y uso
@@ -41,7 +41,7 @@ $ python main.py --texto "Estoy bien, pero ya no puedo más. Siempre me pasa lo 
 pip install -r requirements.txt
 python -m textblob.download_corpora lite
 
-python main.py                                   # consulta interactiva (/resumen, /salir)
+python main.py                                   # conversación (/informe, /resumen, /salir)
 python main.py --texto "Me siento sola..."       # un texto
 python main.py --sesion ejemplos/sesion_ejemplo.txt   # evolución de una sesión
 python main.py --demo                            # ejemplos
@@ -59,10 +59,36 @@ python -m unittest -v                            # tests
 | Leer entre líneas | Práctica clínica | Lo que va tras el **"pero"** pesa más; detección de **minimización** ("estoy bien, pero…") y **ambivalencia** |
 | Detectar pensamientos que hacen daño | Terapia cognitiva (Beck, Burns) | 9 **distorsiones cognitivas**, cada una con una pregunta socrática para reformularla |
 | Entender que los pensamientos generan emociones | Modelo cognitivo (A. Beck) | "¿Y si suspendo?" suma **ansiedad** aunque no aparezca ninguna palabra emocional |
-| Responder con empatía | Escucha activa (C. Rogers) | **Reflejo empático** que cita la frase de la persona y valida la emoción |
+| Hablar "en su idioma" | Sincronía de estilo lingüístico (Ireland y Pennebaker, 2010) | Detecta registro (formal → coloquial), tú/usted, emojis, interjecciones y autodescripciones, y **responde con el mismo estilo** |
+| Responder con objetividad | Terapia cognitiva: hechos frente a interpretaciones | La respuesta se basa en lo dicho y separa hechos de suposiciones, sin falsos ánimos |
 | Hacer buenas preguntas | Diálogo socrático | Preguntas adaptadas a la emoción, las señales y las distorsiones |
 | Seguir la evolución | Seguimiento de la sesión | **Modo sesión**: trayectoria de la valencia, tendencia y patrones repetidos |
 | Detectar riesgo y derivar | Cribado de riesgo | **Alerta** ante ideación suicida o autolesión (también en formas indirectas) con recursos: **024** y **112** |
+
+## La respuesta: misma cercanía, sin copiar la negatividad
+
+El sistema adapta **la forma** de responder a cómo escribe la persona, pero **no copia su malestar**:
+
+| Mensaje | Respuesta |
+|---|---|
+| *tia estoy mazo rayada con lo del examen, en plan q no me entra nada y seguro q suspendo 😭* | Uf, vale. Por lo que dices, estás rayada con lo del examen. Eso todavía no ha pasado, así que no sabemos cómo va a salir. Oye, ¿desde cuándo te sientes así? 🫂 |
+| *joder estoy de puta pena, mi jefe es un gilipollas y todo me sale mal, soy un desastre* | Uf, vale. Por lo que dices, estás de bajón con lo de tu jefe. Que algo no haya salido bien no te define como persona. Oye, ¿desde cuándo te sientes así? |
+| *Buenas tardes. Le escribo porque últimamente me siento muy cansada y preocupada por mi trabajo.* | Gracias por contármelo. Por lo que me cuenta, está cansada y preocupada por su trabajo. ¿Desde cuándo se siente así? |
+| *jajaja hoy he quedado con mis amigos y estoy a tope* | Jaja, ¡qué bien! Por lo que dices, estás a tope con tus amigos. … |
+
+**Qué refleja**: el registro, tú o usted, sus interjecciones ("uf", "jaja") si encajan con el tono, sus
+emojis (solo los de apoyo, nunca 😭), su propia forma de describirse ("rayada", "hecho polvo",
+"más tranqui") con su misma preposición ("preocupada *por* su trabajo"), y una longitud parecida a
+la de su mensaje.
+
+**Qué NO copia**: tacos, insultos hacia sí misma ("soy un desastre"), palabras absolutistas
+("siempre", "nada", "nadie"), intensificadores del malestar ("mazo", "muy") ni emojis negativos.
+
+**Objetividad**: se basa en lo que ha dicho ("Por lo que cuentas…"), separa hechos de
+interpretaciones ("todavía no ha pasado, así que no sabemos cómo va a salir") y evita los falsos
+ánimos como "seguro que todo irá bien".
+
+Ante un **riesgo**, la seguridad va por delante del estilo: el mensaje es claro y directo y da el 024.
 
 ## Cómo funciona por dentro
 
@@ -109,9 +135,12 @@ Con `--traza` se ve cada paso del cálculo, por ejemplo:
 main.py              programa de terminal (consulta, texto, sesión, demo)
 analizador.py        motor de análisis -> objeto Analisis
 informe.py           informe tipo psicólogo y resumen de sesión
+respuesta.py         respuesta objetiva adaptada al estilo de la persona
+estilo.py            detección del estilo (registro, tú/usted, expresiones, temas)
 lexico.py            emociones, pesos, modelo circumplejo, negaciones, intensificadores
 marcadores.py        marcadores lingüísticos, distorsiones cognitivas y riesgo
-test_analizador.py   24 tests (python -m unittest -v)
+utils.py             normalización, abreviaturas ("q" -> "que") y búsqueda de expresiones
+test_analizador.py   36 tests (python -m unittest -v)
 ejemplos/            sesión de ejemplo
 ```
 

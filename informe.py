@@ -2,38 +2,18 @@
 Genera el informe "tipo psicólogo" a partir de un Analisis.
 
 Técnicas que imita:
-  - REFLEJO EMPÁTICO (escucha activa, Carl Rogers): devolver a la persona lo que
-    siente usando sus propias palabras, para que se sienta comprendida.
-  - VALIDACIÓN: transmitir que la emoción tiene sentido en su situación.
+  - RESPUESTA ADAPTADA (respuesta.py): objetiva, con el mismo registro y las
+    expresiones de la persona, pero sin copiar su negatividad.
   - PREGUNTAS SOCRÁTICAS (terapia cognitiva): en vez de dar consejos, hacer
     preguntas que ayuden a la persona a explorar y cuestionar sus pensamientos.
   - SEGUIMIENTO: en una sesión, observar cómo evoluciona el estado emocional.
 """
 
-import re
 from collections import Counter
 
 from lexico import ICONOS, NOMBRES
 import marcadores as M
-
-# Reflejo + validación para cada emoción. {cita} = palabras de la persona.
-REFLEJOS = {
-    "alegria": "Transmites alegría{cita}. Qué bien que lo estés viviendo así.",
-    "serenidad": "Se percibe calma y tranquilidad{cita}. Es un estado valioso, merece la pena notarlo.",
-    "amor": "Hablas con cariño y afecto{cita}. Se nota que esa conexión es importante para ti.",
-    "esperanza": "Hay esperanza en lo que cuentas{cita}: ganas de que las cosas vayan bien.",
-    "sorpresa": "Algo te ha pillado por sorpresa{cita}. Es normal necesitar un tiempo para asimilarlo.",
-    "tristeza": "Lo que cuentas suena a tristeza{cita}. Es lógico sentirse así cuando algo duele.",
-    "soledad": "Parece que te sientes sin compañía o sin nadie que te entienda{cita}, y eso pesa mucho.",
-    "ira": "Se percibe enfado o frustración{cita}. Suele aparecer cuando algo se vive como injusto "
-           "o cuando se cruza un límite importante.",
-    "miedo": "Hay miedo en lo que dices{cita}. Ante algo que se vive como una amenaza es una reacción natural.",
-    "ansiedad": "Transmites preocupación y tensión{cita}, como si la mente no pudiera parar.",
-    "culpa": "Parece que cargas con culpa por lo que pasó{cita}.",
-    "verguenza": "Noto una mirada muy dura hacia ti{cita}. La vergüenza duele porque ataca cómo "
-                 "nos vemos a nosotros mismos.",
-    "asco": "Hay rechazo o desagrado ante lo que describes{cita}.",
-}
+from respuesta import generar_respuesta
 
 PREGUNTAS = {
     "alegria": ["¿Qué ha hecho que te sientas así?", "¿Cómo podrías tener más momentos como este?"],
@@ -86,34 +66,6 @@ def _eje(valor, izq, der, ancho=21):
 
 def _nombre(emocion):
     return f"{ICONOS[emocion]} {NOMBRES[emocion]}"
-
-
-def _clausula(texto, palabra):
-    """Devuelve el trozo de frase (entre signos de puntuación) donde aparece la
-    palabra, para citar a la persona con sus propias palabras."""
-    from analizador import normalizar
-    objetivo = normalizar(palabra.replace("no … ", ""))
-    for trozo in re.split(r"[.,;!?¡¿\n]+", texto):
-        trozo = trozo.strip()
-        if objetivo in normalizar(trozo):
-            return trozo if len(trozo) <= 60 else palabra
-    return palabra
-
-
-def reflejo_empatico(a):
-    if a.dominante == "neutral":
-        return "No encuentro una emoción clara en lo que escribes. A veces cuesta ponerle palabras."
-    disparadores = a.disparadores.get(a.dominante, [])
-    palabra = next((d for d in disparadores if len(d) > 2), None)
-    frase = _clausula(a.texto, palabra) if palabra else None
-    cita = f" cuando dices «{frase}»" if frase else ""
-    frase = REFLEJOS[a.dominante].format(cita=cita)
-    if a.secundarias:
-        otras = " y ".join(NOMBRES[e].lower() for e in a.secundarias)
-        frase += f" También percibo algo de {otras}."
-    if any(s.id == "minimizacion" for s in a.senales):
-        frase += " Aunque dices que estás bien, lo que cuentas parece más difícil que eso."
-    return frase
 
 
 def preguntas_sugeridas(a, maximo=4):
@@ -194,10 +146,11 @@ def generar_informe(a, mostrar_traza=False):
         L.append(f"     ↳ {d.explicacion}")
         L.append(f"     ↳ Para reformular: {d.pregunta}")
 
-    # 5. Respuesta empática
-    L += ["", "5. LO QUE DIRÍA UN PSICÓLOGO",
-          f"   💬 {reflejo_empatico(a)}",
-          "   Preguntas para seguir explorando:"]
+    # 5. Respuesta adaptada al estilo de la persona
+    L += ["", "5. RESPUESTA (objetiva y adaptada a su forma de expresarse)",
+          f"   Estilo detectado: {a.estilo.resumen()}",
+          f"   💬 {generar_respuesta(a)}",
+          "   Otras preguntas para seguir explorando:"]
     L += [f"     – {p}" for p in preguntas_sugeridas(a)]
 
     if mostrar_traza and a.traza:

@@ -14,6 +14,8 @@ import sys
 
 from analizador import analizar
 from informe import generar_informe, informe_sesion
+from lexico import NOMBRES
+from respuesta import generar_respuesta
 
 EJEMPLOS = [
     "¡Hoy me han dado la beca! Estoy muy feliz y con muchas ganas de empezar 🎉",
@@ -31,11 +33,12 @@ def consulta_interactiva(traza):
     print("╔══════════════════════════════════════════════════════════╗")
     print("║            EMOTION ANALYSIS SYSTEM — consulta            ║")
     print("╚══════════════════════════════════════════════════════════╝")
-    print("Cuéntame cómo estás. Comandos: /resumen (evolución de la sesión), /salir")
+    print("Cuéntame cómo estás.")
+    print("Comandos: /informe (análisis del último mensaje), /resumen (evolución), /salir")
     sesion = []
     while True:
         try:
-            texto = input("\n> ").strip()
+            texto = input("\n> ").strip().lstrip("﻿")
         except (EOFError, KeyboardInterrupt):
             texto = "/salir"
         if not texto:
@@ -48,9 +51,18 @@ def consulta_interactiva(traza):
         if texto.lower() == "/resumen":
             print(informe_sesion(sesion))
             continue
+        if texto.lower() == "/informe":
+            print(generar_informe(sesion[-1], mostrar_traza=traza) if sesion else "Aún no hay mensajes.")
+            continue
         a = analizar(texto)
         sesion.append(a)
-        print(generar_informe(a, mostrar_traza=traza))
+        # Respuesta conversacional + una línea de análisis
+        print(f"\n💬 {generar_respuesta(a, turno=len(sesion) - 1)}")
+        resumen = f"{NOMBRES[a.dominante]}"
+        if a.secundarias:
+            resumen += " + " + ", ".join(NOMBRES[e] for e in a.secundarias)
+        extras = len(a.senales) + len(a.distorsiones)
+        print(f"   [{resumen} · {a.estado} · {extras} señales · estilo {a.estilo.registro}]")
 
 
 def main():
