@@ -49,6 +49,10 @@ EMOCIONES = {
         ("motivad*", 2), ("optimis*", 2), ("confio", 2), ("confianza", 1),
         ("animad*", 1), ("ganas de", 1), ("saldra bien", 2), ("va a salir bien", 2),
         ("lo conseguire", 2), ("podre", 1), ("seguir adelante", 2),
+        # Deseo: "quiero / necesito / me gustaría..." = ganas, motivación
+        ("solo quiero", 1), ("quiero un", 1), ("quiero una", 1), ("quiero que", 1),
+        ("necesito un", 1), ("necesito una", 1), ("necesito que", 1), ("me gustaria", 1),
+        ("me encantaria", 2), ("tengo ganas de", 2),
         ("hope*", 2), ("optimistic", 2),
     ],
     "sorpresa": [

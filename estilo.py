@@ -137,6 +137,16 @@ class Estilo:
         return " · ".join(partes)
 
 
+ADJ_PRENOMINALES = {
+    "buen", "buena", "buenos", "buenas", "mal", "mala", "malos", "malas", "gran", "grande",
+    "nuevo", "nueva", "nuevos", "nuevas", "viejo", "vieja", "mejor", "mejores", "peor", "peores",
+    "pequeno", "pequena", "mucho", "mucha", "muchos", "muchas", "poco", "poca", "pocos", "pocas",
+    "otro", "otra", "otros", "otras", "primer", "primera", "ultimo", "ultima", "segundo", "segunda",
+    "puto", "puta", "maldito", "maldita", "dichoso", "dichosa", "pobre", "querido", "querida",
+    "antiguo", "antigua", "verdadero", "verdadera", "unico", "unica", "mismo", "misma",
+}
+
+
 @dataclass
 class Tema:
     prep: str      # preposición que usó la persona ("con", "por"...) o None
@@ -201,15 +211,35 @@ def _expresion_me(texto, normal):
     return None
 
 
+_NO_VOC_ANTES = {"mi", "tu", "su", "mis", "tus", "sus", "el", "la", "los", "las", "un", "una",
+                 "del", "al", "de", "a", "con", "para", "por", "esa", "ese", "esta", "este"}
+
+
 def _vocativo(texto, normal):
     fuente = texto if len(texto) == len(normal) else normal
     m = RE_VOCATIVO.search(normal) or RE_VOCATIVO_FINAL.search(normal)
+    if not m:
+        # En mitad del mensaje, seguido de coma: "todo bro, no hay quesitos".
+        # Pero no si va detrás de un determinante: "a mi tía, que..." no es vocativo.
+        for m2 in re.finditer(r"\b(" + _ALT_VOC + r")(?=\s*[,!?])", normal):
+            previa = normal[:m2.start()].split()[-1:]
+            if not previa or previa[0] not in _NO_VOC_ANTES:
+                m = m2
+                break
     return fuente[m.start(1):m.end(1)] if m else None
 
 
+CARINOS = ["xoxo", "besis", "besitos", "muak", "mua", "<3", "un besazo", "besazo"]
+
+
 def _cierre(texto, normal):
-    """Coletilla al final del mensaje: 'xoxo', 'besis', 'un abrazo'..."""
+    """Coletilla: 'xoxo', 'besis', 'un abrazo'... Los cariños ('xoxo', 'besis')
+    cuentan aunque vayan en mitad del mensaje; el resto, solo al final."""
     fuente = texto if len(texto) == len(normal) else normal
+    for c in CARINOS:
+        m = re.search(r"(?<!\w)" + re.escape(c) + r"(?!\w)", normal)
+        if m:
+            return fuente[m.start():m.end()]
     cola = normal[-30:]
     desplazamiento = len(normal) - len(cola)
     mejor = None
@@ -247,6 +277,13 @@ def _temas(texto, spans_expresiones=()):
         if any(ini <= m.start(2) < fin for ini, fin in spans_expresiones):
             continue
         det = {"un": "el", "una": "la"}.get(det, det)    # "una reunión" -> "la reunión"
+        # Adjetivos que van DELANTE del sustantivo: "un BUEN bíceps", "la NUEVA casa".
+        # El tema es el sustantivo de detrás, así que lo añadimos: "buen bíceps".
+        if n in ADJ_PRENOMINALES:
+            siguiente = re.match(r"\s+([a-záéíóúüñ]{3,})", bajo[m.end():])
+            if not siguiente:
+                continue
+            sust = f"{sust} {siguiente.group(1)}"
         if all(t.sust != sust for t in temas):
             temas.append(Tema(prep, det, sust, m.start()))
     return temas

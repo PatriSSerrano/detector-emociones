@@ -215,6 +215,67 @@ class TestRespuesta(unittest.TestCase):
         self.assertNotIn("Jaja", r)
 
 
+class TestConversacion(unittest.TestCase):
+    """Un psicólogo recuerda lo que se ha dicho: las respuestas se leen en contexto."""
+
+    def conversar(self, mensajes):
+        from analizador import aplicar_contexto
+        from respuesta import generar_respuesta
+        sesion, respuestas = [], []
+        for m in mensajes:
+            a = aplicar_contexto(analizar(m), sesion[-1] if sesion else None)
+            respuestas.append(generar_respuesta(a, turno=len(sesion), historial=sesion))
+            sesion.append(a)
+        return sesion, respuestas
+
+    def test_recoge_la_respuesta_a_su_pregunta(self):
+        sesion, r = self.conversar(["estoy hasta el coño", "todo bro, no hay quesitos en clase"])
+        self.assertEqual(sesion[1].dominante, "ira")             # la emoción sigue ahí
+        self.assertTrue(sesion[1].emocion_por_contexto)
+        self.assertIn("lo que más te ha molestado es que no hay quesitos en clase", r[1])
+        self.assertIn("bro", r[1])
+
+    def test_no_repite_preguntas(self):
+        sesion, _ = self.conversar(["estoy hasta el coño", "no hay quesitos", "pues eso", "ya"])
+        preguntas = [a.pregunta_hecha for a in sesion]
+        self.assertEqual(len(preguntas), len(set(preguntas)))
+
+    def test_pasa_a_segunda_persona(self):
+        _, r = self.conversar(["tía me siento fatal", "pues que mi novio me ha dejado"])
+        self.assertIn("tu novio te ha dejado", r[1])
+
+    def test_desde_cuando(self):
+        _, r = self.conversar(["tía me siento fatal", "desde el lunes"])
+        self.assertIn("llevas así desde el lunes", r[1])
+
+    def test_no_lo_se(self):
+        _, r = self.conversar(["estoy muy triste", "no lo sé"])
+        self.assertIn("No pasa nada si no lo sabes", r[1])
+
+    def test_deseo_no_se_duplica(self):
+        _, r = self.conversar(["estoy hasta el coño", "no hay quesitos", "yo solo quiero un buen bicep"])
+        self.assertIn("solo quieres un buen bicep", r[2])
+        self.assertNotIn("gustaría es que", r[2])
+
+    def test_mantiene_usted(self):
+        sesion, r = self.conversar(["Buenas tardes. Le escribo porque estoy preocupada por mi hijo.",
+                                    "Que no come bien."])
+        self.assertEqual(sesion[1].estilo.tratamiento, "usted")
+        self.assertIn("le preocupa", r[1])
+
+
+class TestTemas(unittest.TestCase):
+    def test_adjetivo_delante_del_sustantivo(self):
+        temas = [t.sust for t in analizar("necesito un buen bicep").estilo.temas]
+        self.assertIn("buen bicep", temas)
+
+    def test_cierre_en_mitad_del_mensaje(self):
+        self.assertEqual(analizar("no se xoxo, yo solo quiero dormir").estilo.cierre, "xoxo")
+
+    def test_vocativo_en_mitad(self):
+        self.assertEqual(analizar("todo bro, no hay quesitos").estilo.vocativo, "bro")
+
+
 class TestSesion(unittest.TestCase):
     def test_tendencia_mejora(self):
         sesion = [analizar("Estoy muy triste"), analizar("Me siento fatal"),

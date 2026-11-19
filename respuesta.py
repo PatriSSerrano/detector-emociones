@@ -16,6 +16,9 @@ Principios (lo que haría un buen psicólogo):
   3. UNA SOLA PREGUNTA al final, para invitar a seguir hablando.
 """
 
+import re
+import unicodedata
+
 from utils import normalizar
 
 # Conjugaciones para tú / usted. Se usan con .format(**CONJ[tratamiento])
@@ -160,6 +163,69 @@ PREGUNTAS = {
     "neutral": ("¿Y cómo te sientes con eso?", "¿Y cómo se siente con eso?"),
 }
 
+# Preguntas de SEGUIMIENTO: para avanzar en la conversación sin repetirse
+SEGUIMIENTO = {
+    "alegria": [("¿Con quién lo vas a celebrar?", "¿Con quién lo va a celebrar?"),
+                ("¿Cómo te sientes ahora mismo?", "¿Cómo se siente ahora mismo?")],
+    "serenidad": [("¿Qué podrías hacer para mantenerlo?", "¿Qué podría hacer para mantenerlo?")],
+    "amor": [("¿Se lo has dicho?", "¿Se lo ha dicho?")],
+    "esperanza": [("¿Qué necesitarías para conseguirlo?", "¿Qué necesitaría para conseguirlo?"),
+                  ("¿Qué te lo está poniendo difícil?", "¿Qué se lo está poniendo difícil?")],
+    "sorpresa": [("¿Qué vas a hacer ahora?", "¿Qué va a hacer ahora?")],
+    "tristeza": [("¿Qué es lo que más te pesa?", "¿Qué es lo que más le pesa?"),
+                 ("¿Qué te ayudaría un poco ahora mismo?", "¿Qué le ayudaría un poco ahora mismo?")],
+    "soledad": [("¿Con quién te gustaría estar ahora?", "¿Con quién le gustaría estar ahora?"),
+                ("¿Desde cuándo te sientes así?", "¿Desde cuándo se siente así?")],
+    "ira": [("¿Y qué te gustaría que pasara?", "¿Y qué le gustaría que pasara?"),
+            ("¿Qué podrías hacer tú al respecto?", "¿Qué podría hacer usted al respecto?")],
+    "miedo": [("¿Qué parte de eso depende de ti?", "¿Qué parte de eso depende de usted?"),
+              ("¿Qué te ayudaría a sentir más seguridad?", "¿Qué le ayudaría a sentir más seguridad?")],
+    "ansiedad": [("¿Qué parte de eso depende de ti?", "¿Qué parte de eso depende de usted?"),
+                 ("¿Qué es lo peor que crees que podría pasar?", "¿Qué es lo peor que cree que podría pasar?")],
+    "culpa": [("¿Has podido hablarlo con esa persona?", "¿Ha podido hablarlo con esa persona?"),
+              ("¿Qué le dirías a alguien que hubiera hecho lo mismo?",
+               "¿Qué le diría a alguien que hubiera hecho lo mismo?")],
+    "verguenza": [("¿Qué crees que piensan los demás?", "¿Qué cree que piensan los demás?")],
+    "asco": [("¿Qué te gustaría hacer al respecto?", "¿Qué le gustaría hacer al respecto?")],
+    "neutral": [("¿Hay algo más que quieras contarme?", "¿Hay algo más que quiera contarme?"),
+                ("¿Y eso cómo te hace sentir?", "¿Y eso cómo le hace sentir?")],
+}
+
+# Cómo encajar la RESPUESTA de la persona en la pregunta que se le hizo.
+# Clave: (emoción, índice de la pregunta). "{x}" = lo que ha dicho, en 2ª persona.
+MARCOS = {
+    ("ira", 0): "lo que más {te} ha molestado es que {x}",
+    ("ira", 1): "lo que {te} gustaría es que {x}",
+    ("ansiedad", 0): "lo que más {te} preocupa es que {x}",
+    ("miedo", 0): "lo que más {te} preocupa es que {x}",
+    ("asco", 0): "lo que más rechazo {te} produce es que {x}",
+}
+
+# Paso a 2ª persona: "yo solo quiero" -> "tú solo quieres"
+SEGUNDA_PERSONA = {
+    "tu": {"yo": "tú", "me": "te", "mi": "tu", "mí": "ti", "mis": "tus", "conmigo": "contigo",
+           "estoy": "estás", "tengo": "tienes", "soy": "eres", "he": "has", "quiero": "quieres",
+           "puedo": "puedes", "siento": "sientes", "voy": "vas", "hago": "haces", "sé": "sabes",
+           "creo": "crees", "pienso": "piensas", "necesito": "necesitas", "odio": "odias",
+           "echo": "echas", "estaba": "estabas", "tenía": "tenías", "fui": "fuiste",
+           "hice": "hiciste", "dije": "dijiste", "aguanto": "aguantas", "soporto": "soportas",
+           "gusta": "gusta", "llevo": "llevas", "sigo": "sigues", "veo": "ves", "digo": "dices"},
+    "usted": {"yo": "usted", "me": "le", "mi": "su", "mí": "usted", "mis": "sus",
+              "conmigo": "con usted", "estoy": "está", "tengo": "tiene", "soy": "es", "he": "ha",
+              "quiero": "quiere", "puedo": "puede", "siento": "siente", "voy": "va", "hago": "hace",
+              "sé": "sabe", "creo": "cree", "pienso": "piensa", "necesito": "necesita",
+              "odio": "odia", "echo": "echa", "estaba": "estaba", "tenía": "tenía", "fui": "fue",
+              "hice": "hizo", "dije": "dijo", "aguanto": "aguanta", "soporto": "soporta",
+              "llevo": "lleva", "sigo": "sigue", "veo": "ve", "digo": "dice"},
+}
+# Muletillas del principio que no aportan contenido: "todo, ...", "pues...", "no sé, ..."
+RE_MULETILLAS = re.compile(
+    r"^\s*(?:(?:todo|nada|pues|bueno|es que|mira|nah|na|buah|uf|buf|jo|joder|hostia|ostia|vale|"
+    r"hombre|ya|no s[eé])\s*(?:,|\.|!|\s+(?=\w))\s*)+", re.IGNORECASE)
+
+APERTURA_SEGUIMIENTO = {"formal": ["Entiendo.", "Comprendo."], "neutro": ["Entiendo.", "Ya veo."],
+                        "cercano": ["Vale.", "Ya veo."], "coloquial": ["Vale.", "Ya veo."]}
+
 RESPUESTA_RIESGO = (
     "Gracias por contarlo. Lo que dices es importante y no tienes por qué pasarlo a solas: "
     "puedes llamar ahora al 024, es gratis y te atienden a cualquier hora (si es una emergencia, "
@@ -217,6 +283,8 @@ def _elegir_tema(a):
 
 
 def _valencia(a):
+    if a.dominante == "esperanza":
+        return "neutral"      # un deseo ("necesito un buen bíceps") no es una "buena noticia"
     return "positiva" if a.valencia > 0.15 else "negativa" if a.valencia < -0.15 else "neutral"
 
 
@@ -319,12 +387,76 @@ def _recursos(a):
     return recursos
 
 
-def _pregunta(a):
+def _pregunta(a, historial=()):
+    """Una pregunta que NO se haya hecho ya en la conversación."""
     e = a.estilo
-    p = PREGUNTAS[a.dominante][0 if e.tratamiento == "tu" else 1]
-    if e.registro == "coloquial":
-        p = "Oye, " + p[0] + p[1].lower() + p[2:]       # "Oye, ¿desde cuándo...?"
+    idx = 0 if e.tratamiento == "tu" else 1
+    hechas = {h.pregunta_hecha for h in historial}
+    opciones = [PREGUNTAS[a.dominante]] + SEGUIMIENTO.get(a.dominante, [])
+    elegida = next((o for o in opciones if o[idx] not in hechas), None)
+    if elegida is None:                              # ya se han hecho todas
+        opciones = SEGUIMIENTO["neutral"]
+        elegida = next((o for o in opciones if o[idx] not in hechas), opciones[0])
+    a.pregunta_hecha = elegida[idx]
+    a.pregunta_tipo = (a.dominante, opciones.index(elegida)) if opciones is not SEGUIMIENTO["neutral"] \
+        else ("neutral", -1)
+    p = elegida[idx]
+    if e.registro == "coloquial" and len(historial) % 2 == 0:   # "Oye," sí, pero no siempre
+        p = "Oye, " + p[0] + p[1].lower() + p[2:]
     return p
+
+
+def _parafrasear(a):
+    """Lo que ha dicho la persona, en 2ª persona y sin muletillas:
+    'no se xoxo, yo solo quiero un buen bicep' -> 'tú solo quieres un buen bicep'"""
+    e, t = a.estilo, a.texto
+    if "?" in t:
+        return None
+    for quitar in (e.vocativo, e.cierre):
+        if quitar:
+            t = re.sub(r"[,\s]*(?<!\w)" + re.escape(quitar) + r"(?!\w)\s*,?", " ", t, count=1)
+    t = "".join(c for c in t if not (unicodedata.category(c) == "So" and ord(c) > 0x2100))
+    t = RE_MULETILLAS.sub("", t.strip())
+    t = re.sub(r"^que\s+", "", t, flags=re.IGNORECASE)
+    tabla = SEGUNDA_PERSONA[e.tratamiento]
+    t = re.sub(r"\b\w+\b", lambda m: tabla.get(m.group(0).lower(), m.group(0)), t)
+    t = re.sub(r"\s+", " ", t).strip(" .,!…")
+    if not t or len(t.split()) > 20:
+        return None
+    return t[0].lower() + t[1:]
+
+
+RE_NO_SE = re.compile(r"(no (lo )?se|ni idea|no sabria (que )?decir\w*|no estoy segur[oa])"
+                      r"(,? la verdad)?")
+RE_TIEMPO = re.compile(r"(desde|hace|ayer|anoche|esta (semana|manana|tarde)|este (mes|ano)|"
+                       r"un[oa]?s? |dos |tres |varios |varias |un par|el |la )")
+RE_DESEO = re.compile(r"(solo )?(quieres|quiere|necesitas|necesita|te gustaria|le gustaria)\b")
+
+
+def _respuesta_a_pregunta(a, anterior):
+    """'¿Qué te ha molestado?' -> 'no hay quesitos' -> 'Así que lo que más te ha
+    molestado es que no hay quesitos.'"""
+    t = a.estilo.tratamiento
+    # "No lo sé" no se repite: se le quita peso (no saberlo también es normal)
+    if RE_NO_SE.fullmatch(normalizar(a.texto).strip(" .!,…")):
+        return ("No pasa nada si no lo sabes, a veces cuesta verlo." if t == "tu"
+                else "No pasa nada si no lo sabe, a veces cuesta verlo.")
+    x = _parafrasear(a)
+    if not x:
+        return None
+    if x.startswith("tú "):
+        x = x[3:]                                   # "tú solo quieres" -> "solo quieres"
+    xn = normalizar(x)
+    tipo = anterior.pregunta_tipo
+    marco = MARCOS.get(tipo)
+    if RE_DESEO.match(xn):
+        marco = None                                # ya expresa el deseo: no duplicarlo
+    # "¿Desde cuándo te sientes así?" -> "desde el lunes" -> "llevas así desde el lunes"
+    if anterior.pregunta_hecha and "desde cuando" in normalizar(anterior.pregunta_hecha) \
+            and RE_TIEMPO.match(xn):
+        marco = "{llevas} así {x}"
+    frase = marco.format(x=x, llevas="llevas" if t == "tu" else "lleva", **CONJ[t]) if marco else x
+    return f"Así que {frase}."
 
 
 def _emoji(a):
@@ -338,11 +470,13 @@ def _emoji(a):
     return " " + (EMOJI_APOYO if val == "negativa" else EMOJI_NEUTRO)
 
 
-def generar_respuesta(a, turno=0):
-    """Respuesta objetiva, adaptada al estilo de la persona y sin copiar su negatividad."""
+def generar_respuesta(a, turno=0, historial=()):
+    """Respuesta objetiva, adaptada al estilo de la persona y sin copiar su negatividad.
+    historial: análisis anteriores de la conversación (para no perder el hilo)."""
     e = a.estilo
     if a.riesgo == "alto":
         # Ante el riesgo, la prioridad es la seguridad: mensaje claro y directo.
+        a.pregunta_hecha = "riesgo"
         return RESPUESTA_RIESGO[0 if e.tratamiento == "tu" else 1]
 
     # Longitud parecida a la del mensaje de la persona
@@ -351,11 +485,21 @@ def generar_respuesta(a, turno=0):
     if not reencuadres and e.longitud == "corta":
         reencuadres = _reencuadres(a, 1)          # aun corta, si hay algo importante, se dice
 
-    partes = [_apertura(a, turno), _reflejo(a)] + reencuadres
-    if e.longitud != "corta":
-        partes += _recursos(a)
-    partes.append(_pregunta(a))
-    return " ".join(p for p in partes if p) + _emoji(a) + _cierre(a)
+    # ¿Contesta a la pregunta que le hicimos? Entonces se recoge su respuesta.
+    anterior = historial[-1] if historial else None
+    recogida = _respuesta_a_pregunta(a, anterior) if anterior and a.es_respuesta else None
+    if recogida:
+        opciones = APERTURA_SEGUIMIENTO[e.registro]
+        apertura = _con_vocativo(opciones[turno % len(opciones)].format(**CONJ[e.tratamiento]),
+                                 e.vocativo)
+        partes = [apertura, recogida] + reencuadres
+    else:
+        partes = [_apertura(a, turno), _reflejo(a)] + reencuadres
+        if e.longitud != "corta":
+            partes += _recursos(a)
+    partes.append(_pregunta(a, historial))
+    texto = " ".join(p for p in partes if p) + _emoji(a) + _cierre(a)
+    return re.sub(r"\s{2,}", " ", texto)
 
 
 def _cierre(a):

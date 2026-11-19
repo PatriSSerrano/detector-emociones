@@ -77,6 +77,11 @@ class Analisis:
     apoyo_explicito: bool = False                      # "me escuchó", "hablé con..."
     fuente: str = "reglas"                             # "reglas" o "híbrido (reglas + modelos)"
     modelo: dict = None                                # salida de modelos.analizar_ml()
+    # Conversación
+    es_respuesta: bool = False                         # contesta a la pregunta anterior
+    emocion_por_contexto: bool = False                 # la emoción viene del mensaje anterior
+    pregunta_hecha: str = ""                           # la pregunta con la que respondió el sistema
+    pregunta_tipo: tuple = (None, -1)                  # (emoción, índice) de esa pregunta
 
 
 # ---------------------------------------------------------------------------
@@ -330,6 +335,34 @@ def _marcadores(texto, normal, palabras, porcentajes):
         riesgo = "bajo"
 
     return senales, distorsiones, riesgo, evid_riesgo
+
+
+# ---------------------------------------------------------------------------
+# Contexto de la conversación
+# ---------------------------------------------------------------------------
+def aplicar_contexto(a, anterior):
+    """
+    Un psicólogo no escucha cada frase por separado: recuerda lo que se ha dicho.
+      - Un mensaje corto suele ser la RESPUESTA a la pregunta anterior
+        ("¿qué te ha molestado?" -> "no hay quesitos en clase").
+      - CONTINUIDAD EMOCIONAL: si ese mensaje no trae una emoción clara, la
+        emoción del mensaje anterior sigue ahí. No desaparece de un mensaje a otro.
+      - El estilo también se mantiene: una respuesta corta da poca información
+        de registro, así que se conserva el de antes.
+    """
+    if anterior is None:
+        return a
+    a.es_respuesta = a.n_palabras <= 20 and "?" not in a.texto
+    if a.es_respuesta and a.dominante == "neutral" and anterior.dominante != "neutral":
+        a.dominante = anterior.dominante
+        a.emocion_por_contexto = True
+        a.valencia, a.activacion, a.estado = anterior.valencia, anterior.activacion, anterior.estado
+        a.traza.append(f"sin emoción clara -> se mantiene la del mensaje anterior ({anterior.dominante})")
+    if a.estilo.registro == "neutro" and anterior.estilo.registro in ("cercano", "coloquial", "formal"):
+        a.estilo.registro = anterior.estilo.registro
+    if a.estilo.tratamiento == "tu" and anterior.estilo.tratamiento == "usted":
+        a.estilo.tratamiento = "usted"
+    return a
 
 
 # ---------------------------------------------------------------------------

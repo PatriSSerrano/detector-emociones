@@ -84,6 +84,24 @@ def _aviso(msg):
 
 
 @lru_cache(maxsize=1)
+def _silenciar():
+    """Quita barras de progreso y avisos técnicos de Hugging Face de la conversación."""
+    try:
+        from huggingface_hub.utils import disable_progress_bars
+        from huggingface_hub.utils import logging as hf_logging
+        disable_progress_bars()
+        hf_logging.set_verbosity_error()
+    except ImportError:
+        pass
+    try:
+        from transformers.utils import logging as tr_logging
+        tr_logging.set_verbosity_error()
+        tr_logging.disable_progress_bar()
+    except ImportError:
+        pass
+
+
+@lru_cache(maxsize=1)
 def _analizador_emociones():
     from pysentimiento import create_analyzer
     _aviso("· Cargando modelo de emociones (pysentimiento)... la primera vez se descarga.")
@@ -106,6 +124,7 @@ def _zero_shot():
 
 def precargar():
     """Carga los tres modelos de una vez (para no esperar en el primer mensaje)."""
+    _silenciar()
     _analizador_emociones(), _analizador_ironia(), _zero_shot()
 
 

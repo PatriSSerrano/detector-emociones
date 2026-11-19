@@ -14,7 +14,7 @@ import sys
 
 import analizador
 import modelos
-from analizador import analizar
+from analizador import analizar, aplicar_contexto
 from informe import generar_informe, informe_sesion
 from lexico import NOMBRES
 from respuesta import generar_respuesta
@@ -31,6 +31,17 @@ EJEMPLOS = [
 ]
 
 
+def _descartar_teclas():
+    """Si se pulsan teclas mientras cargan los modelos, se descartan para que no
+    lleguen como un mensaje vacío."""
+    try:
+        import msvcrt          # solo Windows
+        while msvcrt.kbhit():
+            msvcrt.getwch()
+    except ImportError:
+        pass
+
+
 def consulta_interactiva(traza):
     print("╔══════════════════════════════════════════════════════════╗")
     print("║            EMOTION ANALYSIS SYSTEM — consulta            ║")
@@ -38,6 +49,8 @@ def consulta_interactiva(traza):
     if analizador.USAR_MODELOS:
         print("Cargando los modelos de lenguaje (la primera vez se descargan, tarda un poco)...")
         modelos.precargar()
+        _descartar_teclas()
+        print("✔ Listo.\n")
     else:
         print("(Modo solo reglas: instala pysentimiento para el modo híbrido.)")
     print("Cuéntame cómo estás.")
@@ -61,11 +74,11 @@ def consulta_interactiva(traza):
         if texto.lower() == "/informe":
             print(generar_informe(sesion[-1], mostrar_traza=traza) if sesion else "Aún no hay mensajes.")
             continue
-        a = analizar(texto)
+        a = aplicar_contexto(analizar(texto), sesion[-1] if sesion else None)
+        # Respuesta conversacional (con memoria de lo hablado) + una línea de análisis
+        print(f"\n💬 {generar_respuesta(a, turno=len(sesion), historial=sesion)}")
         sesion.append(a)
-        # Respuesta conversacional + una línea de análisis
-        print(f"\n💬 {generar_respuesta(a, turno=len(sesion) - 1)}")
-        resumen = f"{NOMBRES[a.dominante]}"
+        resumen = f"{NOMBRES[a.dominante]}" + (" (por el contexto)" if a.emocion_por_contexto else "")
         if a.secundarias:
             resumen += " + " + ", ".join(NOMBRES[e] for e in a.secundarias)
         extras = len(a.senales) + len(a.distorsiones)
@@ -93,7 +106,9 @@ def main():
     elif args.sesion:
         with open(args.sesion, encoding="utf-8") as f:
             mensajes = [linea.strip() for linea in f if linea.strip() and not linea.startswith("#")]
-        resultados = [analizar(m) for m in mensajes]
+        resultados = []
+        for m in mensajes:
+            resultados.append(aplicar_contexto(analizar(m), resultados[-1] if resultados else None))
         if args.traza:
             for a in resultados:
                 print(generar_informe(a, mostrar_traza=True))
