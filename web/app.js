@@ -87,6 +87,9 @@ function detalle(d) {
     `<div><b>${escapar(a.dominante.nombre)}</b>${a.por_contexto ? " (por el contexto)" : ""}
        · ${escapar(a.estado)}</div>`,
   ];
+  if (a.otras_personas.length)
+    filas.push(`<div><b>Otras personas:</b> ${a.otras_personas
+      .map((o) => `${escapar(o.quien)} (${escapar(o.emocion.toLowerCase())})`).join(", ")}</div>`);
   if (a.senales.length)
     filas.push(`<div><b>Cómo lo dices:</b> ${a.senales.map((s) => escapar(s.nombre)).join(", ")}</div>`);
   if (a.distorsiones.length)
@@ -166,6 +169,11 @@ function pintarAhora(d) {
   const alerta = a.riesgo === "alto"
     ? `<div class="alerta">${ICONO_ALERTA}Riesgo: llama al 024 (gratis, 24 h)</div>`
     : a.riesgo === "moderado" ? `<div class="alerta">${ICONO_ALERTA}Desesperanza: 024 si lo necesitas</div>` : "";
+  // Emociones de OTRAS personas de las que habla: se muestran aparte, no son suyas
+  const otras = a.otras_personas.length
+    ? `<div class="otras"><span>Otras personas:</span> ${a.otras_personas
+        .map((o) => `${escapar(o.quien)} (${escapar(o.emocion.toLowerCase())})`).join(", ")}</div>`
+    : "";
   caja.className = "ahora";
   caja.innerHTML = `
     <div class="ahora-nombre">${escapar(a.dominante.nombre)}</div>
@@ -173,7 +181,7 @@ function pintarAhora(d) {
     <div class="medidor">
       <div class="medidor-etiqueta"><span>Intensidad</span><span>${escapar(a.intensidad)}</span></div>
       <div class="medidor-pista">${pista}</div>
-    </div>${alerta}`;
+    </div>${otras}${alerta}`;
 }
 
 // ================================================================ 2) TONO (línea que avanza)

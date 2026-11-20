@@ -137,6 +137,9 @@ def notas_del_analisis(a):
     if a.secundarias:
         n.append("También: " + ", ".join(NOMBRES[s] for s in a.secundarias) + ".")
     n.append(f"Estado: {a.estado}.")
+    for o in a.otras_personas:
+        n.append(f"Habla de lo que siente otra persona: {o['quien']} ({NOMBRES[o['emocion']].lower()}). "
+                 "Eso NO es lo que siente quien escribe: no lo confundas.")
     for s in a.senales:
         n.append(f"Señal: {s.nombre} («{s.evidencias[0]}»).")
     for d in a.distorsiones:
@@ -200,6 +203,96 @@ def _problema(texto, a):
     if a.estilo.tratamiento == "usted" and TUTEO.search(texto):
         return "La persona habla de usted: trátale de usted (le, su, usted, está, siente), nunca de tú."
     return None
+
+
+# ---------------------------------------------------------------------------
+# JUEZ DE PERSPECTIVA: ¿qué siente QUIEN ESCRIBE?
+# Las reglas y los clasificadores detectan emociones que APARECEN en el texto,
+# pero no de quién son: en "mi hermano está muy enfadado conmigo" la ira es del
+# hermano; quien escribe siente culpa o preocupación. Eso hay que inferirlo
+# entendiendo la situación, que es lo que hace bien un LLM.
+# ---------------------------------------------------------------------------
+EMOCIONES_JUEZ = ["alegria", "serenidad", "amor", "esperanza", "sorpresa", "tristeza", "soledad",
+                  "ira", "miedo", "ansiedad", "culpa", "verguenza", "asco"]
+
+# Formato obligatorio de la respuesta (Ollama lo hace cumplir)
+ESQUEMA_JUEZ = {
+    "type": "object",
+    "properties": {
+        # Primero RAZONA (quién siente qué) y después responde: a los modelos pequeños
+        # les ayuda mucho pensar antes de dar la respuesta ("chain of thought").
+        "analisis": {"type": "string"},
+        "emociones": {"type": "array", "maxItems": 3, "items": {
+            "type": "object",
+            "properties": {"emocion": {"type": "string", "enum": EMOCIONES_JUEZ},
+                           "intensidad": {"type": "number", "minimum": 0, "maximum": 1}},
+            "required": ["emocion", "intensidad"]}},
+        "otras_personas": {"type": "array", "maxItems": 3, "items": {
+            "type": "object",
+            "properties": {"quien": {"type": "string"},
+                           "emocion": {"type": "string", "enum": EMOCIONES_JUEZ}},
+            "required": ["quien", "emocion"]}},
+    },
+    "required": ["analisis", "emociones", "otras_personas"],
+}
+
+PROMPT_JUEZ = """Eres un psicólogo. Lee el mensaje y responde en JSON:
+- "analisis": UNA frase que diga quién siente qué. Si habla de otra persona, piensa qué siente \
+QUIEN ESCRIBE ante eso (por ejemplo, ante el enfado de alguien cercano se suele sentir culpa o \
+preocupación, no enfado).
+- "emociones": lo que siente LA PERSONA QUE ESCRIBE (de 0 a 3 emociones, con intensidad 0-1).
+- "otras_personas": lo que sienten otras personas de las que habla.
+
+Nunca pongas en "emociones" la emoción de otra persona. Si quien escribe solo cuenta un hecho sin \
+emoción, deja "emociones" vacío.
+
+Emociones posibles: alegria, serenidad, amor, esperanza, sorpresa, tristeza, soledad, ira, miedo, \
+ansiedad (preocupación), culpa, verguenza, asco.
+
+Ejemplos:
+"Mi hermano está muy enfadado conmigo" -> {"analisis": "El enfado es del hermano; quien escribe \
+se siente responsable y preocupado por la relación.", "emociones": [{"emocion": "culpa", \
+"intensidad": 0.6}, {"emocion": "ansiedad", "intensidad": 0.5}], "otras_personas": [{"quien": \
+"su hermano", "emocion": "ira"}]}
+"Mi padre está muy triste desde que murió mi abuela" -> {"analisis": "La tristeza que describe es \
+del padre; quien escribe está preocupado por él y también apenado por la pérdida.", "emociones": \
+[{"emocion": "ansiedad", "intensidad": 0.5}, {"emocion": "tristeza", "intensidad": 0.4}], \
+"otras_personas": [{"quien": "su padre", "emocion": "tristeza"}]}
+"Te odio, no quiero volver a verte" -> {"analisis": "Quien escribe siente rabia hacia la otra \
+persona.", "emociones": [{"emocion": "ira", "intensidad": 0.9}], "otras_personas": []}
+"Mañana tengo una reunión a las diez" -> {"analisis": "Solo cuenta un hecho.", "emociones": [], \
+"otras_personas": []}"""
+
+
+def juzgar(texto, contexto=None, pistas=()):
+    """Qué siente quien escribe y qué sienten los demás, según el LLM. None si falla.
+    pistas: emociones que las reglas ya han atribuido a otras personas."""
+    mensaje = f'Mensaje: "{texto}"'
+    if contexto:
+        mensaje = f'Mensaje anterior de la misma persona: "{contexto}"\n' + mensaje
+    if pistas:
+        mensaje += "\nPista: " + "; ".join(
+            f"la emoción «{NOMBRES[p['emocion']].lower()}» es de {p['quien']}, no de quien escribe"
+            for p in pistas)
+    try:
+        r = _peticion("/api/chat", {
+            "model": MODELO, "stream": False, "keep_alive": "30m", "format": ESQUEMA_JUEZ,
+            "messages": [{"role": "system", "content": PROMPT_JUEZ},
+                         {"role": "user", "content": mensaje}],
+            "options": {"temperature": 0, "num_predict": 220}}, tiempo=TIEMPO_MAXIMO)
+        datos = json.loads(r.get("message", {}).get("content", ""))
+    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+        return None
+    # Revisión de lo que ha devuelto (por si acaso no cumple el esquema)
+    emociones = [{"emocion": e["emocion"], "intensidad": max(0.0, min(1.0, float(e["intensidad"])))}
+                 for e in datos.get("emociones", [])
+                 if isinstance(e, dict) and e.get("emocion") in EMOCIONES_JUEZ
+                 and isinstance(e.get("intensidad"), (int, float))]
+    otras = [{"quien": str(o["quien"])[:40], "emocion": o["emocion"]}
+             for o in datos.get("otras_personas", [])
+             if isinstance(o, dict) and o.get("emocion") in EMOCIONES_JUEZ and o.get("quien")]
+    return {"emociones": emociones, "otras_personas": otras,
+            "analisis": str(datos.get("analisis", ""))[:300]}
 
 
 def responder(a, historial=(), nombre=None):

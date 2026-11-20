@@ -92,6 +92,49 @@ Sin Ollama, el sistema funciona igual, pero responde con plantillas. Se puede us
 con la variable de entorno `OLLAMA_MODELO` (por ejemplo, `gemma3:12b`: entiende mejor, pero va
 más lento).
 
+## ¿Las emociones DE QUIÉN? Quien escribe frente a los demás
+
+Un fallo de base que tenían las primeras versiones: medían las emociones que **aparecen en el
+texto**, no **de quién son**. Con *"Mi hermano está muy enfadado conmigo"* decía **ira**, pero la
+ira es del hermano: quien escribe siente **culpa** o **preocupación**. Medía, más bien, lo que
+transmite el mensaje a quien lo lee.
+
+En lingüística, quien siente la emoción se llama el **experimentador**. Ahora el sistema lo tiene
+en cuenta en tres capas:
+
+1. **Reglas** ([`analizador.py`](analizador.py), `_quien_siente`): si la emoción va con un sujeto
+   en tercera persona (*mi hermano **está** enfadado*, *mi amiga **tiene** miedo*, ***le** da
+   miedo*, *mi jefe me **odia***), no cuenta como emoción de quien escribe y se guarda como
+   **emoción de otra persona**. Las palabras que **valoran** algo (*la comida estaba **podrida***)
+   y las exclamaciones (*¡**qué** asco!*) sí son de quien escribe. La regla no mira más allá de
+   una coma, de *"y"*, *"pero"*, *"que"*…
+2. **Modelos**: el zero-shot ya no pregunta *"¿la persona siente…?"* (podía ser cualquiera), sino
+   *"¿quien ha escrito este mensaje siente…?"*. Ojo: **pysentimiento se entrenó con tuits etiquetados
+   por lectores**, así que mide la emoción que el texto **transmite**. Por eso, cuando las reglas ven
+   que la emoción es de otra persona, los modelos pesan muy poco.
+3. **El LLM como juez de perspectiva** ([`llm.py`](llm.py), `juzgar`): inferir *"si mi hermano está
+   enfadado conmigo, yo me siento culpable"* requiere entender la situación. El LLM devuelve un JSON
+   con formato obligatorio (esquema de Ollama) con lo que siente quien escribe y lo que sienten los
+   demás. **Primero escribe una frase razonando quién siente qué** (*chain of thought*): sin eso, el
+   modelo pequeño repetía la emoción que leía en el texto.
+
+| Frase | Antes | Ahora | Otras personas |
+|---|---|---|---|
+| Mi hermano está muy enfadado conmigo | ira | **culpa** + ansiedad | su hermano: ira |
+| Mi novia está triste y no sé cómo ayudarla | tristeza | **ansiedad** | su novia: tristeza |
+| Mi amiga tiene miedo de perder el trabajo | miedo | **ansiedad** | su amiga: miedo |
+| Mi jefe me ha gritado delante de todos | amor (!) | **vergüenza** + ansiedad | su jefe: ira |
+| Le he dado una sorpresa a mi novia | sorpresa | **alegría** | su novia: sorpresa |
+
+En la interfaz, las emociones de otras personas salen **aparte** ("Otras personas: mi hermano
+(ira)") y no entran en los gráficos. La respuesta tampoco las confunde.
+
+Lo que se probó y **no** funcionó: la *calibración contextual* del zero-shot (dividir entre lo que el
+modelo elige ante un texto neutro). Ante *"Hoy es un día normal"* casi nunca elige "soledad", así que
+al dividir, la soledad se disparaba aún más. Se descartó.
+
+**Coste**: el juez añade unos segundos, así que cada mensaje tarda unos 25-30 s en total en CPU.
+
 ## Ejemplo en la terminal
 
 ```
@@ -324,10 +367,10 @@ estilo.py            detección del estilo (registro, tú/usted, expresiones, te
 lexico.py            emociones, pesos, modelo circumplejo, negaciones, intensificadores
 marcadores.py        marcadores lingüísticos, distorsiones cognitivas y riesgo
 utils.py             normalización, abreviaturas ("q" -> "que") y búsqueda de expresiones
-test_analizador.py   51 tests de las reglas y la conversación (deterministas)
+test_analizador.py   56 tests de las reglas, la conversación y quién siente qué (deterministas)
 test_servidor.py     8 tests de la API del chat
 test_modelos.py      7 tests del modo híbrido, con frases que no están en ninguna lista
-test_llm.py          5 tests de las respuestas del LLM (propiedades: nunca insulta, usted, 024…)
+test_llm.py          6 tests del LLM (nunca insulta, usted, 024, distingue quién siente qué…)
 ejemplos/            sesión de ejemplo
 ```
 

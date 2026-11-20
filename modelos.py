@@ -35,7 +35,9 @@ os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
 
 MODELO_ZERO_SHOT = os.environ.get("MODELO_ZERO_SHOT", "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli")
-PLANTILLA_HIPOTESIS = "En este texto, la persona siente {}."
+# Se pregunta por QUIEN ESCRIBE: con "la persona siente..." el modelo podía responder
+# por cualquiera de las personas que aparecen en el texto.
+PLANTILLA_HIPOTESIS = "Quien ha escrito este mensaje siente {}."
 
 # pysentimiento -> nuestras emociones
 FAMILIA_DE = {"joy": "alegria", "sadness": "tristeza", "anger": "ira", "fear": "miedo",
@@ -131,7 +133,9 @@ def precargar():
 # Emociones que los modelos de emociones básicas suelen confundir con otras
 # ("le grité a mi madre y no puedo mirarla" suena a ira, pero es culpa/vergüenza).
 # Se evalúan SIEMPRE con el zero-shot.
-SIEMPRE = ["culpa", "verguenza", "soledad", "ansiedad"]
+# (La soledad estaba aquí y ganaba casi siempre: el zero-shot la tiene como favorita.
+#  Ahora solo compite si la familia es la tristeza.)
+SIEMPRE = ["culpa", "verguenza", "ansiedad"]
 
 
 def analizar_ml(texto):
@@ -172,6 +176,9 @@ def analizar_ml(texto):
                      batch_size=len(candidatas))                  # todas a la vez: más rápido
     por_etiqueta = dict(zip(r["labels"], r["scores"]))
     matices = {e: float(por_etiqueta[ETIQUETAS[e]]) for e in candidatas}
+    # Probado y descartado: CALIBRACIÓN CONTEXTUAL (dividir entre lo que el modelo
+    # prefiere ante un texto neutro). Ante "Hoy es un día normal" casi nunca elige
+    # "soledad" (2-3 %), así que al dividir la soledad se disparaba aún más.
 
     # 4) Combinación: la mitad viene del reparto jerárquico (la familia de
     #    pysentimiento repartida entre sus matices) y la otra mitad directamente

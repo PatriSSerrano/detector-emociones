@@ -50,6 +50,11 @@ class TestLLM(unittest.TestCase):
         self.assertTrue(re.search(r"\b(usted|le|su|está|siente|cuenta)\b", texto), a.respuesta)
         self.assertNotRegex(texto, r"\b(estás|tienes|te sientes|tu hijo)\b")
 
+    def test_juez_distingue_quien_siente(self):
+        a = analizar("Mi hermano está muy enfadado conmigo", usar_juez=True)
+        self.assertNotEqual(a.dominante, "ira")                 # la ira es del hermano
+        self.assertIn("ira", {o["emocion"] for o in a.otras_personas})
+
     def test_recuerda_la_conversacion(self):
         sesion = conversar(["estoy fatal, mi novio me ha dejado", "desde el lunes"])
         self.assertTrue(sesion[-1].respuesta)

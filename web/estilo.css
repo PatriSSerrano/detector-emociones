@@ -120,6 +120,8 @@ body {
 .medidor-pista span { flex: 1; height: 8px; background: var(--serie-suave); border-radius: 4px;
   transition: background .4s; }
 .medidor-pista span.lleno { background: var(--serie); }
+.otras { margin-top: 8px; font-size: 12px; color: var(--tinta-2); }
+.otras span { color: var(--tinta-suave); }
 .alerta {
   display: flex; align-items: center; gap: 6px;
   margin-top: 10px; padding: 6px 8px; border-radius: 8px; font-size: 13px; font-weight: 600;

@@ -97,6 +97,9 @@ EXPRESIONES = {
         ("{me lo he pasado|lo he pasado|me lo pase|lo pase|pasarlo|me lo paso|pasandolo} "
          "{bomba|pipa|genial|de lujo|en grande|de miedo|teta|de puta madre}", 3),
         ("felicisim*", 3), ("que te cagas", 2), ("de la hostia", 1),
+        # La sorpresa es de quien la recibe; quien la prepara siente ilusión
+        ("{le he dado|le di|le voy a dar|darle|le he preparado|le prepare|le preparo} una sorpresa", 2),
+        ("fiesta sorpresa", 1),
     ],
     "serenidad": [
         ("en la gloria", 2), ("{estoy|me siento|vivo|estamos} como dios", 2),

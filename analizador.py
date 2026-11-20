@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 
 from textblob import TextBlob
 
+import llm
 import marcadores as M
 import modelos
 from estilo import Estilo, detectar_estilo
@@ -32,6 +33,9 @@ PESO_REGLAS = 0.5      # cuando las reglas encuentran pruebas explícitas, hay q
 PESO_MODELOS = 0.5     # los modelos entienden más, pero explican menos
 UMBRAL_IRONIA = 0.9    # alto: el modelo de ironía da falsos positivos fuera de Twitter
 UMBRAL_NEUTRAL = 0.9   # pysentimiento da 98-99 % "sin emoción" a los textos neutros y <70 % a los emocionales
+PESO_JUEZ = 0.65       # cuánto pesa el LLM al decidir qué siente QUIEN ESCRIBE (la fuente más fiable
+                       # en las pruebas: el zero-shot solo confundía culpa con amor, por ejemplo)
+PESO_JUEZ_OTRAS = 0.85 # ...y aún más si la emoción del texto es de otra persona
 
 PALABRAS_ES = {"el", "la", "los", "las", "de", "que", "y", "en", "es", "estoy", "me",
                "un", "una", "muy", "por", "con", "lo", "se", "mi", "pero", "esta"}
@@ -82,6 +86,7 @@ class Analisis:
     emocion_por_contexto: bool = False                 # la emoción viene del mensaje anterior
     pregunta_hecha: str = ""                           # la pregunta con la que respondió el sistema
     pregunta_tipo: tuple = (None, -1)                  # (emoción, índice) de esa pregunta
+    otras_personas: list = field(default_factory=list) # [{"quien": "mi hermano", "emocion": "ira"}]
     respuesta: str = ""                                # lo que le contestó el sistema
     respuesta_de: str = ""                             # "plantillas", "LLM (gemma3:4b)" o "seguridad"
 
@@ -136,21 +141,31 @@ def _buscar_frase(tokens, i):
 
 
 def _tokenizar(oracion):
-    """Palabras originales + normalizadas. Une 'sin embargo' en un solo token
-    para que el 'sin' no se tome como negación."""
-    originales = list(oracion.words)
-    normales = [normalizar(w) for w in originales]
-    o, t, i = [], [], 0
-    while i < len(normales):
-        if normales[i] == "sin" and i + 1 < len(normales) and normales[i + 1] == "embargo":
-            o.append(f"{originales[i]} {originales[i + 1]}")
+    """Palabras originales + normalizadas + PAUSAS (posiciones de las palabras que van
+    justo después de una coma u otro signo). Une 'sin embargo' en un solo token para
+    que el 'sin' no se tome como negación."""
+    piezas = list(oracion.tokens)                # a diferencia de .words, conserva los signos
+    o, t, pausas = [], [], set()
+    pausa, i = False, 0
+    while i < len(piezas):
+        pieza = piezas[i]
+        if not any(c.isalnum() for c in pieza):  # signo de puntuación (o emoji)
+            pausa = True
+            i += 1
+            continue
+        if pausa and o:
+            pausas.add(len(o))
+        pausa = False
+        n = normalizar(pieza)
+        if n == "sin" and i + 1 < len(piezas) and normalizar(piezas[i + 1]) == "embargo":
+            o.append(f"{pieza} {piezas[i + 1]}")
             t.append("sin_embargo")
             i += 2
         else:
-            o.append(originales[i])
-            t.append(normales[i])
+            o.append(pieza)
+            t.append(n)
             i += 1
-    return o, t
+    return o, t, pausas
 
 
 def _detectar_idioma(palabras):
@@ -175,15 +190,68 @@ def _buscar_patrones(patrones, texto_original, texto_normal):
 
 
 # ---------------------------------------------------------------------------
+# ¿QUIÉN siente la emoción? (el "experimentador")
+#   "estoy enfadado"             -> quien escribe
+#   "mi hermano está enfadado"   -> su hermano: NO es una emoción de quien escribe
+#   "la comida estaba podrida"   -> valoración: expresa el asco de quien escribe
+# ---------------------------------------------------------------------------
+PRIMERA = {"estoy", "me", "yo", "siento", "senti", "tengo", "soy", "ando", "sigo", "voy",
+           "quede", "he", "hemos", "estamos", "nos", "quiero", "odio", "temo"}
+TERCERA = {"esta", "estan", "parece", "parecen", "anda", "andan", "siguen", "tiene", "tienen",
+           "le", "les", "se", "ella", "ellos", "ellas", "usted", "ustedes"}
+AMBIGUOS = {"estaba", "estaban", "quedo", "sentia"}       # 1ª o 3ª persona: depende del sujeto
+VERBOS_3A = {"odia", "odian", "llora", "lloran", "sufre", "sufren", "teme", "temen", "adora",
+             "adoran", "ama", "aman", "echa", "echan"}
+DETERMINANTES = {"mi", "mis", "tu", "tus", "su", "sus", "el", "la", "los", "las"}
+CORTES = {"y", "pero", "porque", "que", "cuando", "aunque", "pues", "sin_embargo", "o", "si",
+          "como", "mientras"}
+# Palabras que VALORAN algo (no describen el estado de nadie): siempre son de quien escribe
+VALORACIONES = ("podrid", "asquer", "apest", "desagrad", "repugn", "genial", "maravill",
+                "fantastic", "increible", "perfect", "estupend", "injust", "insoportable",
+                "maldit", "idiota", "imbecil", "horrible", "guay", "chachi", "mola", "flipante")
+
+
+EXCLAMATIVOS = {"que", "menudo", "menuda", "vaya", "como"}
+
+
+def _quien_siente(tokens, originales, i, largo, pausas=()):
+    """None si la emoción es de quien escribe; si es de otra persona, quién ('mi hermano')."""
+    propias = tokens[i:i + largo]
+    verbo_3a = propias[0] in VERBOS_3A            # "mi jefe me ODIA": quien odia es el jefe
+    if not verbo_3a and (set(propias) & PRIMERA or propias[0].startswith(VALORACIONES)
+                         or propias[0] in EXCLAMATIVOS):   # "¡qué asco!" lo dice quien escribe
+        return None
+    # Hasta 5 palabras atrás, sin pasar de una pausa (coma...) ni de "y", "que", "pero"...
+    ventana, j = [], i - 1
+    while j >= 0 and len(ventana) < 5 and tokens[j] not in CORTES and (j + 1) not in pausas:
+        ventana.append(j)
+        j -= 1
+    palabras = {tokens[k] for k in ventana}
+    if palabras & PRIMERA and not verbo_3a:
+        return None
+    sujeto = None
+    for k in sorted(ventana):                     # "mi hermano", "la profe", "ella"...
+        if tokens[k] in DETERMINANTES and k + 1 < i and tokens[k + 1] not in TERCERA | AMBIGUOS:
+            sujeto = f"{originales[k]} {originales[k + 1]}"
+            break
+        if tokens[k] in {"ella", "ellos", "ellas", "usted", "ustedes"}:
+            sujeto = originales[k]
+            break
+    de_otro = (palabras & TERCERA or verbo_3a or (sujeto and palabras & AMBIGUOS))
+    return (sujeto or "otra persona") if de_otro else None
+
+
+# ---------------------------------------------------------------------------
 # PASO 2: puntuación emocional
 # ---------------------------------------------------------------------------
 def _puntuar_emociones(texto, blob):
     puntos = {e: 0.0 for e in EMOCIONES}
     disparadores = {e: [] for e in EMOCIONES}
     traza = []
+    otras = []                    # emociones de otras personas: [{"quien":..., "emocion":...}]
 
     for oracion in blob.sentences:
-        originales, tokens = _tokenizar(oracion)
+        originales, tokens, pausas = _tokenizar(oracion)
         factor_exclamacion = min(1 + 0.2 * str(oracion).count("!"), 1.6)
 
         # Contraste: lo que va DESPUÉS del último "pero" pesa más (x1.3)
@@ -201,6 +269,15 @@ def _puntuar_emociones(texto, blob):
             else:
                 largo, hallazgos = 1, _buscar_palabra(tokens[i])
                 palabra = originales[i]
+
+            # Regla 0 — ¿QUIÉN la siente? Si es otra persona, no es emoción de quien escribe
+            quien = _quien_siente(tokens, originales, i, largo, pausas) if hallazgos else None
+            if quien:
+                for emocion, _ in hallazgos:
+                    if all(o["emocion"] != emocion for o in otras):
+                        otras.append({"quien": quien, "emocion": emocion})
+                    traza.append(f"'{palabra}' -> {emocion} de {quien} (no de quien escribe)")
+                hallazgos = []
 
             if hallazgos:
                 # Regla 1 — NEGACIÓN: 3 palabras hacia atrás, sin cruzar un "pero"
@@ -249,7 +326,7 @@ def _puntuar_emociones(texto, blob):
             disparadores[emocion].append(emoji)
             traza.append(f"emoji {emoji} x{veces} -> {emocion} +{peso * veces}")
 
-    return puntos, disparadores, traza
+    return puntos, disparadores, traza, otras
 
 
 # ---------------------------------------------------------------------------
@@ -370,8 +447,10 @@ def aplicar_contexto(a, anterior):
 # ---------------------------------------------------------------------------
 # Función principal
 # ---------------------------------------------------------------------------
-def analizar(texto, usar_modelos=None):
-    """usar_modelos: None = según USAR_MODELOS; False = solo reglas; True = híbrido."""
+def analizar(texto, usar_modelos=None, usar_juez=None, contexto=None):
+    """usar_modelos: None = según USAR_MODELOS; False = solo reglas; True = híbrido.
+    usar_juez: None = si Ollama está disponible; False/True = forzado.
+    contexto: el mensaje anterior de la persona (ayuda al LLM a entender la situación)."""
     original = texto
     texto = expandir_abreviaturas(texto)      # "q" -> "que", "pq" -> "porque"...
     blob = TextBlob(texto)
@@ -379,7 +458,7 @@ def analizar(texto, usar_modelos=None):
     palabras = [normalizar(w) for w in blob.words]
     n = max(len(palabras), 1)
 
-    puntos, disparadores, traza = _puntuar_emociones(texto, blob)
+    puntos, disparadores, traza, otras = _puntuar_emociones(texto, blob)
 
     # Los pensamientos generan emociones: "¿y si suspendo?" suma ansiedad
     patrones = {**{k: v[1] for k, v in M.SENALES.items()},
@@ -444,6 +523,39 @@ def analizar(texto, usar_modelos=None):
         porcentajes = pct_reglas
         fuente = "reglas"
 
+    # PASO 3c: el LLM como JUEZ DE PERSPECTIVA. Las reglas y los modelos detectan
+    # emociones que aparecen en el texto; el LLM entiende la situación y dice qué
+    # siente QUIEN ESCRIBE ("mi hermano está enfadado conmigo" -> culpa, preocupación)
+    # y qué sienten los demás. Su opinión pesa la mitad.
+    juez = None
+    # Si las reglas ven que la emoción del texto es de OTRA persona ("mi novia está
+    # triste") y ninguna de quien escribe, los modelos están midiendo la emoción de esa
+    # otra persona (miden la que transmite el texto): entonces el juez pesa mucho más.
+    peso_juez = PESO_JUEZ_OTRAS if (otras and total == 0) else PESO_JUEZ
+    if (llm.usar() if usar_juez is None else usar_juez) and idioma == "es":
+        juez = llm.juzgar(original, contexto, pistas=otras)
+    if juez is not None:
+        pct_juez = {e: 0.0 for e in EMOCIONES}
+        for item in juez["emociones"]:
+            pct_juez[item["emocion"]] += item["intensidad"]
+        suma_juez = sum(pct_juez.values())
+        traza.append("LLM (quien escribe): " + (", ".join(
+            f"{i['emocion']} {i['intensidad']:.1f}" for i in juez["emociones"]) or "sin emoción")
+            + f" — «{juez['analisis']}»")
+        if suma_juez > 0:
+            pct_juez = {e: v / suma_juez * 100 for e, v in pct_juez.items()}
+            if sum(porcentajes.values()) == 0:
+                porcentajes = pct_juez
+            else:
+                porcentajes = {e: (1 - peso_juez) * porcentajes[e] + peso_juez * pct_juez[e]
+                               for e in porcentajes}
+        elif total == 0:
+            porcentajes = {e: 0.0 for e in porcentajes}   # nadie ve emoción de quien escribe
+        for o in juez["otras_personas"]:
+            if all(x["emocion"] != o["emocion"] for x in otras):
+                otras.append(o)
+        fuente += " + LLM (perspectiva)"
+
     porcentajes = dict(sorted(porcentajes.items(), key=lambda x: x[1], reverse=True))
     orden = list(porcentajes)
     hay_emocion = sum(porcentajes.values()) > 0
@@ -456,7 +568,10 @@ def analizar(texto, usar_modelos=None):
     if total:
         nivel = "baja" if intensidad < 0.15 else "media" if intensidad < 0.4 else "alta"
     elif hay_emocion:
-        confianza = 1 - ml["neutral"]
+        if juez and juez["emociones"]:
+            confianza = max(i["intensidad"] for i in juez["emociones"])
+        else:
+            confianza = 1 - ml["neutral"] if ml else 0.5
         nivel = "baja" if confianza < 0.6 else "media" if confianza < 0.85 else "alta"
     else:
         nivel = "nula"
@@ -480,6 +595,7 @@ def analizar(texto, usar_modelos=None):
     resultado.texto = original
     resultado.fuente = fuente
     resultado.modelo = ml
+    resultado.otras_personas = otras
     resultado.estilo = detectar_estilo(original)    # el estilo, sobre el texto tal cual
     resultado.apoyo_explicito = bool(re.search(
         r"\b(me (apoya|apoyan|apoyo|ayuda|ayudan|ayudo|escucha|escuchan|escucho|entiende)"

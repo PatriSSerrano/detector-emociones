@@ -264,6 +264,45 @@ class TestConversacion(unittest.TestCase):
         self.assertIn("le preocupa", r[1])
 
 
+class TestQuienSiente(unittest.TestCase):
+    """Las emociones de OTRAS personas no son de quien escribe (el 'experimentador')."""
+
+    def otras(self, texto):
+        a = analizar(texto)
+        return a.dominante, {o["emocion"] for o in a.otras_personas}
+
+    def test_emocion_de_otra_persona(self):
+        for texto, emocion in [("Mi hermano está muy enfadado conmigo", "ira"),
+                               ("Mi madre está muy preocupada por mí", "ansiedad"),
+                               ("Mi amiga tiene miedo de perder el trabajo", "miedo"),
+                               ("A mi hermana le da miedo la oscuridad", "miedo"),
+                               ("Mi hermano estaba triste", "tristeza"),
+                               ("Mi jefe me odia", "ira")]:
+            dominante, otras = self.otras(texto)
+            self.assertIn(emocion, otras, texto)
+            self.assertNotEqual(dominante, emocion, texto)
+
+    def test_emocion_propia(self):
+        for texto, emocion in [("Estoy muy enfadado", "ira"), ("Estaba triste", "tristeza"),
+                               ("Me da miedo la oscuridad", "miedo"), ("Te odio", "ira")]:
+            dominante, otras = self.otras(texto)
+            self.assertEqual(dominante, emocion, texto)
+            self.assertFalse(otras, texto)
+
+    def test_valoracion_es_de_quien_escribe(self):
+        dominante, otras = self.otras("La comida estaba podrida, qué asco")
+        self.assertEqual(dominante, "asco")
+        self.assertFalse(otras)
+
+    def test_cada_uno_lo_suyo(self):
+        a = analizar("Ella llora todos los días y yo me siento fatal")
+        self.assertEqual(a.dominante, "tristeza")
+        self.assertEqual(a.otras_personas[0]["quien"], "Ella")
+
+    def test_dar_una_sorpresa_no_es_sorprenderse(self):
+        self.assertEqual(analizar("Le he dado una sorpresa a mi novia").dominante, "alegria")
+
+
 class TestTemas(unittest.TestCase):
     def test_adjetivo_delante_del_sustantivo(self):
         temas = [t.sust for t in analizar("necesito un buen bicep").estilo.temas]

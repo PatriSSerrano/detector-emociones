@@ -68,6 +68,8 @@ def _datos(a):
             "intensidad": a.nivel_intensidad,
             "senales": [{"nombre": s.nombre, "evidencia": s.evidencias[0]} for s in a.senales],
             "distorsiones": [{"nombre": d.nombre, "evidencia": d.evidencias[0]} for d in a.distorsiones],
+            "otras_personas": [{"quien": o["quien"], "emocion": NOMBRES[o["emocion"]]}
+                               for o in a.otras_personas],
             "riesgo": a.riesgo,
             "recursos": M.RECURSOS_AYUDA if a.riesgo != "bajo" else [],
             "fuente": a.fuente,
@@ -94,7 +96,8 @@ def mensaje():
     if not texto:
         return jsonify({"error": "Mensaje vacío"}), 400
     with cerrojo:
-        a = aplicar_contexto(analizar(texto), sesion[-1] if sesion else None)
+        contexto = sesion[-1].texto if sesion else None
+        a = aplicar_contexto(analizar(texto, contexto=contexto), sesion[-1] if sesion else None)
         responder(a, turno=len(sesion), historial=sesion, nombre=nombre)
         sesion.append(a)
         return jsonify(_datos(a))
