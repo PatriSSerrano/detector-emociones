@@ -12,10 +12,78 @@ Es un **sistema híbrido**:
 - **Reglas** basadas en investigación psicológica para lo que tiene que ser **explicable y
   predecible**: distorsiones cognitivas, estilo del lenguaje y alerta de riesgo.
 - [TextBlob](https://textblob.readthedocs.io/) para dividir el texto en frases y palabras.
+- Un **LLM local** ([Ollama](https://ollama.com) con `gemma3:4b`) que **redacta las respuestas**
+  como una persona, con tu mismo estilo.
+
+Y se usa desde una **interfaz tipo WhatsApp** con gráficos que van midiendo las emociones de la
+conversación.
 
 > ⚠ Proyecto **educativo**. No diagnostica y no sustituye a un profesional de la salud mental.
 
-## Ejemplo
+## La interfaz: un chat con gráficos de emociones
+
+```bash
+python servidor.py          # se abre http://127.0.0.1:5000 en el navegador
+```
+
+![Chat tipo WhatsApp con gráficos de emociones arriba](docs/captura-chat.jpg)
+
+- **Abajo, el chat**: como hablar con un amigo por WhatsApp (burbujas, *"escribiendo…"*, ✓✓).
+  Debajo de cada respuesta, **ⓘ análisis** muestra qué ha detectado el sistema y quién ha
+  redactado la respuesta.
+- **Arriba, fuera del "móvil"**, tres gráficos que se actualizan con cada mensaje:
+
+| Gráfico | Qué muestra | Por qué esta forma |
+|---|---|---|
+| **Ahora** | La emoción del último mensaje, el estado (valencia × activación) y un medidor de intensidad. Si hay riesgo, una alerta con el 024 | Es **un solo dato**: una tarjeta se lee mejor que un gráfico |
+| **Tono de la conversación** | La valencia de cada mensaje, de *desagradable* (−1) a *agradable* (+1). Al pasar el ratón: mensaje, emoción y texto | Es una **evolución en el tiempo**: una línea sobre la referencia "neutro" |
+| **Emociones en la conversación** | Qué emociones se han acumulado en toda la charla, de mayor a menor | Para **comparar partes**, las barras ordenadas se leen mejor que un gráfico circular |
+
+Los gráficos usan **un solo color** (las emociones ya se distinguen por el nombre y el icono),
+tienen **modo oscuro** automático y están dibujados en SVG/HTML sin librerías externas: todo
+funciona **sin internet**. Por dentro, [`servidor.py`](servidor.py) (Flask) recibe cada mensaje,
+lo analiza, pide la respuesta y devuelve los datos que pinta [`web/app.js`](web/app.js).
+
+## Respuestas redactadas por un LLM local (Ollama)
+
+Las reglas y los clasificadores saben **qué** emoción hay, pero no entienden lo que quieres decir
+(el humor, de qué hablas de verdad), y las plantillas suenan a máquina. Por eso las respuestas
+las redacta un **LLM (modelo de lenguaje grande)** que corre en tu ordenador:
+
+```
+tu mensaje ──► ANÁLISIS (reglas + modelos): emoción, distorsiones, estilo, riesgo
+                   │
+                   ├─ riesgo alto ──────────────► mensaje de seguridad fijo (024)
+                   │
+                   └─► LLM: instrucciones + conversación + notas del análisis ──► respuesta
+                              │
+                              └─ ¿cumple las normas? no ─► se corrige 1 vez ─► si no, plantillas
+```
+
+- **[`llm.py`](llm.py)** le pasa al modelo tres cosas: unas **instrucciones fijas** (*system
+  prompt*: habla con su estilo, tacos sí, insultos no, sé objetivo, sin falsos ánimos, una sola
+  pregunta), **la conversación entera** y unas **notas del análisis** de tu último mensaje
+  (emoción, distorsiones, si usas *bro* o *xoxo*, si hablas de usted…).
+- **Ejemplos dentro del prompt** (*few-shot*): a los modelos pequeños les ayuda mucho más
+  **ver** cómo responder que leer normas. Efecto secundario: copiaba el *"bro"* de los ejemplos
+  aunque no lo hubieras dicho, así que las notas le prohíben usar vocativos que no uses tú.
+- **Control de calidad**: si la respuesta insulta, dramatiza (*"qué horror"*), se salta el
+  usted o tiene palabras mal escritas, se le pide que la corrija; si sigue mal, se usa la de
+  plantillas. Los emojis tristes se quitan siempre.
+- **La seguridad nunca depende del LLM**: si las reglas detectan riesgo, el mensaje con el 024
+  sale siempre.
+- **Privado**: Ollama corre en tu ordenador; los mensajes no salen de él.
+
+Para instalarlo:
+```bash
+winget install Ollama.Ollama        # o desde https://ollama.com
+ollama pull gemma3:4b               # ~3,3 GB
+```
+Sin Ollama, el sistema funciona igual, pero responde con plantillas. Se puede usar otro modelo
+con la variable de entorno `OLLAMA_MODELO` (por ejemplo, `gemma3:12b`: entiende mejor, pero va
+más lento).
+
+## Ejemplo en la terminal
 
 ```
 $ python main.py --texto "Estoy bien, pero ya no puedo más. Siempre me pasa lo mismo, soy un fracasado."
@@ -47,8 +115,12 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements.txt
 python -m textblob.download_corpora lite
 
-python main.py                                   # conversación (/informe, /resumen, /salir)
-python main.py --solo-reglas                     # sin modelos (rápido, sin descargas)
+ollama pull gemma3:4b                            # opcional: LLM local para redactar respuestas
+
+python servidor.py                               # interfaz tipo WhatsApp con gráficos
+python main.py                                   # conversación en la terminal (/informe, /resumen, /salir)
+python main.py --sin-llm                         # respuestas con plantillas
+python main.py --solo-reglas                     # sin modelos ni LLM (rápido, sin descargas)
 python main.py --texto "Me siento sola..."       # un texto
 python main.py --sesion ejemplos/sesion_ejemplo.txt   # evolución de una sesión
 python main.py --demo                            # ejemplos
@@ -216,8 +288,12 @@ Con `--traza` se ve cada paso del cálculo, por ejemplo:
   CPU. Con `--solo-reglas` es instantáneo, pero entiende menos.
 - **Privacidad**: todo se ejecuta en tu ordenador. Solo se usa internet para descargar los modelos la
   primera vez; los textos no se envían a ningún sitio.
-- La **respuesta** sigue montándose con plantillas: entiende mejor, pero no redacta como una persona.
-  Para eso haría falta un LLM.
+- **El LLM es pequeño** (4B parámetros) para que vaya en un portátil: a veces suena raro o se
+  salta alguna norma (el control de calidad recoge las más importantes). Tarda unos 10 s por
+  respuesta en CPU.
+- **Memoria de conversación**: un mensaje corto sin emoción clara **hereda la del anterior**
+  (*"todo bro, no hay quesitos en clase"* sigue siendo enfado). Es una regla simple: si
+  cambias de tema con un mensaje corto, puede arrastrar la emoción de antes.
 - **Reflejar** una expresión con las palabras de la persona necesita reconocerla, así que para eso
   [`expresiones.py`](expresiones.py) sigue siendo útil.
 - Está pensado para **español**. En inglés se usan solo las reglas y la polaridad de TextBlob.
@@ -226,6 +302,9 @@ Con `--traza` se ve cada paso del cálculo, por ejemplo:
 ## Estructura
 
 ```
+servidor.py          interfaz gráfica: servidor Flask + API del chat
+web/                 chat tipo WhatsApp y gráficos (HTML, CSS, JavaScript)
+llm.py               respuestas redactadas por un LLM local (Ollama) con control de calidad
 main.py              programa de terminal (consulta, texto, sesión, demo)
 analizador.py        motor de análisis y fusión reglas + modelos -> objeto Analisis
 modelos.py           modelos de lenguaje: pysentimiento (familia, ironía) y zero-shot (matices)
@@ -236,8 +315,10 @@ estilo.py            detección del estilo (registro, tú/usted, expresiones, te
 lexico.py            emociones, pesos, modelo circumplejo, negaciones, intensificadores
 marcadores.py        marcadores lingüísticos, distorsiones cognitivas y riesgo
 utils.py             normalización, abreviaturas ("q" -> "que") y búsqueda de expresiones
-test_analizador.py   41 tests de las reglas (deterministas)
+test_analizador.py   51 tests de las reglas y la conversación (deterministas)
+test_servidor.py     6 tests de la API del chat
 test_modelos.py      7 tests del modo híbrido, con frases que no están en ninguna lista
+test_llm.py          5 tests de las respuestas del LLM (propiedades: nunca insulta, usted, 024…)
 ejemplos/            sesión de ejemplo
 ```
 

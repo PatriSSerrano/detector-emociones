@@ -1,4 +1,5 @@
 textblob>=0.18
+flask>=3.0
 # Modelos de lenguaje (modo híbrido). Sin ellos el sistema funciona solo con reglas.
 # PyTorch: mejor instalar la versión CPU antes:
 #   pip install torch --index-url https://download.pytorch.org/whl/cpu
@@ -7,3 +8,5 @@ transformers>=4.40
 pysentimiento>=0.7
 sentencepiece
 protobuf
+# LLM local para redactar las respuestas: no es un paquete de Python.
+# Instala Ollama (https://ollama.com) y ejecuta:  ollama pull gemma3:4b

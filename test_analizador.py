@@ -14,6 +14,8 @@ from informe import generar_informe, informe_sesion
 # sus propios tests en test_modelos.py.
 analizador.USAR_MODELOS = False
 analizar = analizador.analizar
+import llm  # noqa: E402
+llm.USAR = False          # y las respuestas con plantillas (el LLM no es determinista)
 
 
 class TestEmociones(unittest.TestCase):

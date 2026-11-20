@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Emotion Analysis</title>
+  <link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+  <!-- ============ PANEL DE EMOCIONES (fuera del "móvil") ============ -->
+  <section class="panel" aria-label="Emociones de la conversación">
+    <article class="tarjeta" id="tarjeta-ahora">
+      <h2>Ahora</h2>
+      <div id="ahora" class="ahora vacio">Escribe un mensaje para empezar</div>
+    </article>
+
+    <article class="tarjeta tarjeta-ancha">
+      <h2>Tono de la conversación</h2>
+      <div id="grafico-tono" class="grafico" role="img"
+           aria-label="Evolución del tono emocional, mensaje a mensaje"></div>
+    </article>
+
+    <article class="tarjeta">
+      <h2>Emociones en la conversación</h2>
+      <div id="grafico-acumulado" class="barras"></div>
+    </article>
+  </section>
+
+  <!-- ============ EL "MÓVIL" CON EL CHAT ============ -->
+  <main class="movil">
+    <header class="cabecera">
+      <div class="avatar" aria-hidden="true">🧠</div>
+      <div class="contacto">
+        <div class="nombre">Psico</div>
+        <div class="estado-contacto" id="estado-contacto">en línea</div>
+      </div>
+      <button class="boton-icono" id="reiniciar" title="Nueva conversación" aria-label="Nueva conversación">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor"
+          d="M12 5V2L7 6l5 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/></svg>
+      </button>
+    </header>
+
+    <div class="chat" id="chat" aria-live="polite"></div>
+
+    <form class="barra" id="formulario" autocomplete="off">
+      <input id="entrada" type="text" placeholder="Escribe un mensaje" aria-label="Mensaje" maxlength="1000">
+      <button class="enviar" id="enviar" type="submit" aria-label="Enviar">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor"
+          d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+      </button>
+    </form>
+  </main>
+
+  <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>

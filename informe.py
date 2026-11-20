@@ -13,7 +13,7 @@ from collections import Counter
 
 from lexico import ICONOS, NOMBRES
 import marcadores as M
-from respuesta import generar_respuesta
+from respuesta import responder
 
 PREGUNTAS = {
     "alegria": ["¿Qué ha hecho que te sientas así?", "¿Cómo podrías tener más momentos como este?"],
@@ -159,7 +159,8 @@ def generar_informe(a, mostrar_traza=False):
     # 5. Respuesta adaptada al estilo de la persona
     L += ["", "5. RESPUESTA (objetiva y adaptada a su forma de expresarse)",
           f"   Estilo detectado: {a.estilo.resumen()}",
-          f"   💬 {generar_respuesta(a)}",
+          f"   💬 {a.respuesta or responder(a)}",
+          f"   (redactada por: {a.respuesta_de})",
           "   Otras preguntas para seguir explorando:"]
     L += [f"     – {p}" for p in preguntas_sugeridas(a)]
 

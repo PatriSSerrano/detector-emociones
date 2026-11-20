@@ -16,8 +16,9 @@ import analizador
 import modelos
 from analizador import analizar, aplicar_contexto
 from informe import generar_informe, informe_sesion
+import llm
 from lexico import NOMBRES
-from respuesta import generar_respuesta
+from respuesta import responder
 
 EJEMPLOS = [
     "¡Hoy me han dado la beca! Estoy muy feliz y con muchas ganas de empezar 🎉",
@@ -49,10 +50,16 @@ def consulta_interactiva(traza):
     if analizador.USAR_MODELOS:
         print("Cargando los modelos de lenguaje (la primera vez se descargan, tarda un poco)...")
         modelos.precargar()
-        _descartar_teclas()
-        print("✔ Listo.\n")
     else:
         print("(Modo solo reglas: instala pysentimiento para el modo híbrido.)")
+    if llm.usar():
+        print(f"Cargando el LLM local ({llm.MODELO}) para redactar las respuestas...")
+        llm.precalentar()
+    else:
+        print("(Respuestas con plantillas. Para que las redacte un LLM local: instala Ollama y "
+              f"ejecuta 'ollama pull {llm.MODELO}'.)")
+    _descartar_teclas()
+    print("✔ Listo.\n")
     print("Cuéntame cómo estás.")
     print("Comandos: /informe (análisis del último mensaje), /resumen (evolución), /salir")
     sesion = []
@@ -76,20 +83,22 @@ def consulta_interactiva(traza):
             continue
         a = aplicar_contexto(analizar(texto), sesion[-1] if sesion else None)
         # Respuesta conversacional (con memoria de lo hablado) + una línea de análisis
-        print(f"\n💬 {generar_respuesta(a, turno=len(sesion), historial=sesion)}")
+        print(f"\n💬 {responder(a, turno=len(sesion), historial=sesion)}")
         sesion.append(a)
         resumen = f"{NOMBRES[a.dominante]}" + (" (por el contexto)" if a.emocion_por_contexto else "")
         if a.secundarias:
             resumen += " + " + ", ".join(NOMBRES[e] for e in a.secundarias)
         extras = len(a.senales) + len(a.distorsiones)
-        print(f"   [{resumen} · {a.estado} · {extras} señales · estilo {a.estilo.registro}]")
+        print(f"   [{resumen} · {a.estado} · {extras} señales · estilo {a.estilo.registro}"
+              f" · respuesta: {a.respuesta_de}]")
 
 
 def main():
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")   # emojis y tildes en Windows
-    except AttributeError:
-        pass
+    for flujo in (sys.stdout, sys.stderr):        # emojis y tildes en Windows
+        try:
+            flujo.reconfigure(encoding="utf-8", errors="replace")
+        except AttributeError:
+            pass
 
     p = argparse.ArgumentParser(description="Emotion Analysis System")
     p.add_argument("--texto", help="analiza un único texto")
@@ -97,9 +106,13 @@ def main():
     p.add_argument("--demo", action="store_true", help="analiza frases de ejemplo")
     p.add_argument("--traza", action="store_true", help="muestra el cálculo paso a paso")
     p.add_argument("--solo-reglas", action="store_true", help="no usa los modelos de lenguaje")
+    p.add_argument("--sin-llm", action="store_true", help="respuestas con plantillas, sin Ollama")
     args = p.parse_args()
     if args.solo_reglas:
         analizador.USAR_MODELOS = False
+        llm.USAR = False
+    if args.sin_llm:
+        llm.USAR = False
 
     if args.texto:
         print(generar_informe(analizar(args.texto), mostrar_traza=args.traza))

@@ -502,6 +502,28 @@ def generar_respuesta(a, turno=0, historial=()):
     return re.sub(r"\s{2,}", " ", texto)
 
 
+def responder(a, turno=0, historial=(), usar_llm=None):
+    """
+    Decide QUIÉN responde:
+      1. Riesgo alto  -> mensaje de seguridad fijo (las reglas mandan).
+      2. LLM local    -> si Ollama está funcionando (entiende y redacta mejor).
+      3. Plantillas   -> si no hay LLM, o falla, o su respuesta no pasa el control.
+    """
+    import llm
+    plantilla = generar_respuesta(a, turno, historial)     # siempre: es el plan B
+    if a.riesgo == "alto":
+        texto, a.respuesta_de = plantilla, "seguridad"
+    else:
+        usar = llm.usar() if usar_llm is None else usar_llm
+        texto = llm.responder(a, historial) if usar else None
+        if texto:
+            a.respuesta_de = f"LLM ({llm.MODELO})"
+        else:
+            texto, a.respuesta_de = plantilla, "plantillas"
+    a.respuesta = texto
+    return texto
+
+
 def _cierre(a):
     """Devuelve su coletilla final ('xoxo', 'besis'...). Las risas solo si el tono es positivo."""
     c = a.estilo.cierre

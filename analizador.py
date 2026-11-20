@@ -82,6 +82,8 @@ class Analisis:
     emocion_por_contexto: bool = False                 # la emoción viene del mensaje anterior
     pregunta_hecha: str = ""                           # la pregunta con la que respondió el sistema
     pregunta_tipo: tuple = (None, -1)                  # (emoción, índice) de esa pregunta
+    respuesta: str = ""                                # lo que le contestó el sistema
+    respuesta_de: str = ""                             # "plantillas", "LLM (gemma3:4b)" o "seguridad"
 
 
 # ---------------------------------------------------------------------------

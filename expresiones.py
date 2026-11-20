@@ -100,6 +100,7 @@ EXPRESIONES = {
     ],
     "serenidad": [
         ("en la gloria", 2), ("{estoy|me siento|vivo|estamos} como dios", 2),
+        ("{me he quedado|me quede|quede|me quedo|te quedas} como {dios|nuevo|nueva|un rey|una reina}", 3),
         ("de relax", 2), ("de chill", 2),
         ("{me he quitado|me quite|quitado|quitarme} un peso de encima", 3),
         ("mas ancho que largo", 2), ("tan pancho", 2), ("tan pancha", 2),
