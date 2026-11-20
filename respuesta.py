@@ -444,6 +444,11 @@ def _respuesta_a_pregunta(a, anterior):
     x = _parafrasear(a)
     if not x:
         return None
+    # Nunca devolver un mensaje con insultos ("Así que es un imbécil")
+    from llm import INSULTOS
+    insultos = {normalizar(i) for i in INSULTOS} | {"gilipollas", "subnormal"}
+    if set(re.findall(r"\w+", normalizar(x))) & insultos:
+        return None
     if x.startswith("tú "):
         x = x[3:]                                   # "tú solo quieres" -> "solo quieres"
     xn = normalizar(x)

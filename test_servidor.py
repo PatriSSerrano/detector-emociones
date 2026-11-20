@@ -6,6 +6,7 @@ Usa el cliente de pruebas de Flask: hace peticiones sin abrir el navegador.
 Solo reglas y plantillas, para que sea rápido y siempre dé lo mismo.
 """
 
+import json
 import unittest
 
 import analizador
@@ -21,10 +22,21 @@ class TestServidor(unittest.TestCase):
         self.cliente = servidor.app.test_client()
         self.cliente.post("/api/reiniciar")
 
-    def mandar(self, texto):
-        r = self.cliente.post("/api/mensaje", json={"texto": texto})
+    def eventos(self, texto, **extra):
+        """La respuesta llega en streaming: un JSON por línea."""
+        r = self.cliente.post("/api/mensaje", json={"texto": texto, **extra})
         self.assertEqual(r.status_code, 200)
-        return r.get_json()
+        return [json.loads(l) for l in r.get_data(as_text=True).splitlines() if l.strip()]
+
+    def mandar(self, texto):
+        evs = self.eventos(texto)
+        self.assertEqual(evs[-1]["tipo"], "fin")
+        return evs[-1]
+
+    def test_streaming_por_eventos(self):
+        tipos = [e["tipo"] for e in self.eventos("estoy muy contenta")]
+        self.assertIn("analisis", tipos)
+        self.assertEqual(tipos[-1], "fin")
 
     def test_pagina(self):
         r = self.cliente.get("/")
@@ -64,8 +76,7 @@ class TestServidor(unittest.TestCase):
         self.assertTrue(all(e["pct"] >= 5 for e in d["conversacion"]["acumulado"]))
 
     def test_nombre_del_chat(self):
-        r = self.cliente.post("/api/mensaje", json={"texto": "hola", "nombre": "  Luna \n "})
-        self.assertEqual(r.status_code, 200)
+        self.assertEqual(self.eventos("hola", nombre="  Luna \n ")[-1]["tipo"], "fin")
 
     def test_mensaje_vacio(self):
         r = self.cliente.post("/api/mensaje", json={"texto": "   "})

@@ -18,7 +18,7 @@ from analizador import analizar, aplicar_contexto
 from informe import generar_informe, informe_sesion
 import llm
 from lexico import NOMBRES
-from respuesta import responder
+from conversacion import procesar
 
 EJEMPLOS = [
     "¡Hoy me han dado la beca! Estoy muy feliz y con muchas ganas de empezar 🎉",
@@ -47,9 +47,11 @@ def consulta_interactiva(traza):
     print("╔══════════════════════════════════════════════════════════╗")
     print("║            EMOTION ANALYSIS SYSTEM — consulta            ║")
     print("╚══════════════════════════════════════════════════════════╝")
+    if llm.usar() and llm.arrancar_servidor_gpu():
+        print("Usando la gráfica integrada (Vulkan) para el LLM.")
     if analizador.USAR_MODELOS:
         print("Cargando los modelos de lenguaje (la primera vez se descargan, tarda un poco)...")
-        modelos.precargar()
+        modelos.precargar(zero_shot=not llm.usar())
     else:
         print("(Modo solo reglas: instala pysentimiento para el modo híbrido.)")
     if llm.usar():
@@ -81,9 +83,13 @@ def consulta_interactiva(traza):
         if texto.lower() == "/informe":
             print(generar_informe(sesion[-1], mostrar_traza=traza) if sesion else "Aún no hay mensajes.")
             continue
-        a = aplicar_contexto(analizar(texto), sesion[-1] if sesion else None)
-        # Respuesta conversacional (con memoria de lo hablado) + una línea de análisis
-        print(f"\n💬 {responder(a, turno=len(sesion), historial=sesion)}")
+        # Respuesta en streaming (se escribe según la genera el LLM) + una línea de análisis
+        print("\n💬 ", end="", flush=True)
+        escrito = []
+        a = procesar(texto, sesion, al_escribir=lambda t: (escrito.append(t), print(t, end="", flush=True)))
+        if "".join(escrito).strip() != a.respuesta:      # plantillas, seguridad o corregida
+            print(("\n   (corregida) " if escrito else "") + a.respuesta, end="")
+        print()
         sesion.append(a)
         resumen = f"{NOMBRES[a.dominante]}" + (" (por el contexto)" if a.emocion_por_contexto else "")
         if a.secundarias:
@@ -115,20 +121,20 @@ def main():
         llm.USAR = False
 
     if args.texto:
-        print(generar_informe(analizar(args.texto), mostrar_traza=args.traza))
+        print(generar_informe(procesar(args.texto), mostrar_traza=args.traza))
     elif args.sesion:
         with open(args.sesion, encoding="utf-8") as f:
             mensajes = [linea.strip() for linea in f if linea.strip() and not linea.startswith("#")]
         resultados = []
         for m in mensajes:
-            resultados.append(aplicar_contexto(analizar(m), resultados[-1] if resultados else None))
+            resultados.append(procesar(m, resultados))
         if args.traza:
             for a in resultados:
                 print(generar_informe(a, mostrar_traza=True))
         print(informe_sesion(resultados))
     elif args.demo:
         for texto in EJEMPLOS:
-            print(generar_informe(analizar(texto), mostrar_traza=args.traza))
+            print(generar_informe(procesar(texto), mostrar_traza=args.traza))
     else:
         consulta_interactiva(args.traza)
 

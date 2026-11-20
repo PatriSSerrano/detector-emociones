@@ -126,9 +126,15 @@ def generar_informe(a, mostrar_traza=False):
         top = lambda d: sorted(d.items(), key=lambda x: x[1], reverse=True)[:3]
         L.append("   · Modelo de emociones (pysentimiento): " + ", ".join(
             f"{NOMBRES.get(e, 'sin emoción')} {p:.0%}" for e, p in top(a.modelo["familias"])))
-        L.append("   · Matices (zero-shot): " + ", ".join(
-            f"{NOMBRES[e]} {p:.0%}" for e, p in top(a.modelo["matices"])))
+        if a.modelo["matices"]:
+            L.append("   · Matices (zero-shot): " + ", ".join(
+                f"{NOMBRES[e]} {p:.0%}" for e, p in top(a.modelo["matices"])))
         L.append(f"   · Ironía: {a.modelo['ironia']:.0%}")
+    if a.analisis_llm:
+        L.append(f"   · LLM (quién siente qué): «{a.analisis_llm}»")
+    if a.otras_personas:
+        L.append("   · Otras personas: " + ", ".join(
+            f"{o['quien']} ({NOMBRES[o['emocion']].lower()})" for o in a.otras_personas))
 
     # 2. Estado afectivo
     L += ["", "2. ESTADO AFECTIVO (modelo circumplejo de Russell)",

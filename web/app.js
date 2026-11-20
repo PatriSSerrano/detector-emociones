@@ -99,8 +99,13 @@ function detalle(d) {
   return `<div class="info" hidden>${filas.join("")}</div>`;
 }
 
-function respuestaDelSistema(d) {
-  const b = burbuja(d.respuesta, "otro", detalle(d));
+// Completa la burbuja con la respuesta final, el detalle del análisis y el botón
+function respuestaDelSistema(d, b) {
+  if (!b) b = burbuja("", "otro");
+  b.classList.remove("escribiendo-texto");
+  b.firstElementChild.textContent = d.respuesta;      // la final (por si se ha corregido)
+  b.querySelector(".info")?.remove();
+  b.querySelector(".meta").insertAdjacentHTML("beforebegin", detalle(d));
   if (d.analisis.riesgo === "alto") b.classList.add("riesgo");
   const boton = document.createElement("button");
   boton.className = "info-boton";
@@ -108,6 +113,14 @@ function respuestaDelSistema(d) {
   boton.textContent = "análisis";
   boton.onclick = () => { const i = b.querySelector(".info"); i.hidden = !i.hidden; };
   b.querySelector(".meta").prepend(boton);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function pintarAnalisis(d) {
+  ultimo = d;
+  pintarAhora(d);
+  avanzarTono(d.conversacion.tono);
+  actualizarTarta(d.conversacion.acumulado);
 }
 
 function saludo() { burbuja(`¡Hola! Soy ${nombre}. Cuéntame qué tal estás.`, "otro"); }
@@ -123,17 +136,43 @@ async function mandar(texto) {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ texto, nombre }),
     });
-    const d = await r.json();
-    escribiendo(false);
-    if (!r.ok) throw new Error(d.error || r.statusText);
-    respuestaDelSistema(d);
-    ultimo = d;
-    pintarAhora(d);
-    avanzarTono(d.conversacion.tono);
-    actualizarTarta(d.conversacion.acumulado);
+    if (!r.ok) throw new Error((await r.json()).error || r.statusText);
+
+    // La respuesta llega en STREAMING: un JSON por línea, según está lista cada cosa
+    const lector = r.body.getReader();
+    const decodificador = new TextDecoder();
+    let pendiente = "", burbujaViva = null, analizado = false;
+    for (;;) {
+      const { value, done } = await lector.read();
+      if (done) break;
+      pendiente += decodificador.decode(value, { stream: true });
+      const lineas = pendiente.split("\n");
+      pendiente = lineas.pop();                         // la última puede estar a medias
+      for (const linea of lineas) {
+        if (!linea.trim()) continue;
+        const ev = JSON.parse(linea);
+        if (ev.tipo === "texto") {                       // un trozo más de la respuesta
+          if (!burbujaViva) { escribiendo(false); burbujaViva = burbuja("", "otro"); }
+          burbujaViva.firstElementChild.textContent += ev.trozo;
+          chat.scrollTop = chat.scrollHeight;
+        } else if (ev.tipo === "analisis") {             // los gráficos, en cuanto se puede
+          pintarAnalisis(ev);
+          analizado = true;
+        } else if (ev.tipo === "fin") {
+          escribiendo(false);
+          respuestaDelSistema(ev, burbujaViva);
+          if (!analizado) pintarAnalisis(ev);
+          ultimo = ev;
+        } else if (ev.tipo === "error") {
+          throw new Error(ev.error);
+        }
+      }
+    }
   } catch (e) {
     escribiendo(false);
-    burbuja("No he podido conectar con el servidor. ¿Sigue abierto servidor.py?", "otro");
+    burbuja(String(e.message).includes("fetch")
+      ? "No he podido conectar con el servidor. ¿Sigue abierto servidor.py?"
+      : "Ha habido un error al responder. Prueba otra vez.", "otro");
   } finally {
     enviar.disabled = false;
     entrada.focus();

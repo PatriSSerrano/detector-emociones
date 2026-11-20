@@ -87,6 +87,11 @@ class Analisis:
     pregunta_hecha: str = ""                           # la pregunta con la que respondió el sistema
     pregunta_tipo: tuple = (None, -1)                  # (emoción, índice) de esa pregunta
     otras_personas: list = field(default_factory=list) # [{"quien": "mi hermano", "emocion": "ira"}]
+    normal: str = ""                                   # texto normalizado (para recalcular)
+    palabras: list = field(default_factory=list)
+    total_reglas: float = 0.0                          # puntos que han dado las reglas
+    mensaje_llm: str = ""                              # lo que se le mandó al LLM (para su caché)
+    analisis_llm: str = ""                             # el razonamiento del LLM: quién siente qué
     respuesta: str = ""                                # lo que le contestó el sistema
     respuesta_de: str = ""                             # "plantillas", "LLM (gemma3:4b)" o "seguridad"
 
@@ -431,12 +436,20 @@ def aplicar_contexto(a, anterior):
     """
     if anterior is None:
         return a
+    heredar_estilo(a, anterior)
     a.es_respuesta = a.n_palabras <= 20 and "?" not in a.texto
     if a.es_respuesta and a.dominante == "neutral" and anterior.dominante != "neutral":
         a.dominante = anterior.dominante
         a.emocion_por_contexto = True
         a.valencia, a.activacion, a.estado = anterior.valencia, anterior.activacion, anterior.estado
         a.traza.append(f"sin emoción clara -> se mantiene la del mensaje anterior ({anterior.dominante})")
+    return a
+
+
+def heredar_estilo(a, anterior):
+    """Una respuesta corta da poca información de registro: se conserva el de antes."""
+    if anterior is None:
+        return a
     if a.estilo.registro == "neutro" and anterior.estilo.registro in ("cercano", "coloquial", "formal"):
         a.estilo.registro = anterior.estilo.registro
     if a.estilo.tratamiento == "tu" and anterior.estilo.tratamiento == "usted":
@@ -444,13 +457,66 @@ def aplicar_contexto(a, anterior):
     return a
 
 
+def aplicar_juez(a, juez):
+    """
+    Suma la opinión del LLM (JUEZ DE PERSPECTIVA) al análisis de reglas y modelos.
+    Las reglas y los modelos detectan emociones que aparecen en el texto; el LLM
+    entiende la situación y dice qué siente QUIEN ESCRIBE ("mi hermano está enfadado
+    conmigo" -> culpa, preocupación) y qué sienten los demás.
+    """
+    pct_juez = {e: 0.0 for e in EMOCIONES}
+    for item in juez["emociones"]:
+        pct_juez[item["emocion"]] += item["intensidad"]
+    suma = sum(pct_juez.values())
+    a.analisis_llm = juez.get("analisis", "")
+    a.traza.append("LLM (quien escribe): " + (", ".join(
+        f"{i['emocion']} {i['intensidad']:.1f}" for i in juez["emociones"]) or "sin emoción")
+        + (f" — «{a.analisis_llm}»" if a.analisis_llm else ""))
+
+    # Si las reglas ven que la emoción del texto es de OTRA persona ("mi novia está
+    # triste") y ninguna de quien escribe, los modelos están midiendo la de esa otra
+    # persona (miden la que transmite el texto): entonces el juez pesa mucho más.
+    peso = PESO_JUEZ_OTRAS if (a.otras_personas and a.total_reglas == 0) else PESO_JUEZ
+    porcentajes = dict(a.porcentajes)
+    if suma > 0:
+        pct_juez = {e: v / suma * 100 for e, v in pct_juez.items()}
+        if sum(porcentajes.values()) == 0:
+            porcentajes = pct_juez
+        else:
+            porcentajes = {e: (1 - peso) * porcentajes.get(e, 0) + peso * pct_juez[e] for e in EMOCIONES}
+    elif a.total_reglas == 0:
+        porcentajes = {e: 0.0 for e in EMOCIONES}       # nadie ve emoción en quien escribe
+    for o in juez["otras_personas"]:
+        if all(x["emocion"] != o["emocion"] for x in a.otras_personas):
+            a.otras_personas.append(o)
+    a.fuente += " + LLM (perspectiva)"
+
+    # Recalcular todo lo que depende de los porcentajes
+    a.porcentajes = dict(sorted(porcentajes.items(), key=lambda x: x[1], reverse=True))
+    orden = list(a.porcentajes)
+    hay = sum(a.porcentajes.values()) > 0
+    a.dominante = orden[0] if hay else "neutral"
+    a.secundarias = [e for e in orden[1:3] if a.porcentajes[e] >= 15] if hay else []
+    if not a.total_reglas:
+        if hay and juez["emociones"]:
+            c = max(i["intensidad"] for i in juez["emociones"])
+            a.nivel_intensidad = "baja" if c < 0.6 else "media" if c < 0.85 else "alta"
+        elif not hay:
+            a.nivel_intensidad = "nula"
+    a.valencia, a.activacion, a.estado = _estado_afectivo(a.porcentajes)
+    ironia = [s for s in a.senales if s.id == "ironia"]
+    a.senales, a.distorsiones, _, _ = _marcadores(a.texto, a.normal, a.palabras, a.porcentajes)
+    a.senales += ironia
+    return a
+
+
 # ---------------------------------------------------------------------------
 # Función principal
 # ---------------------------------------------------------------------------
-def analizar(texto, usar_modelos=None, usar_juez=None, contexto=None):
-    """usar_modelos: None = según USAR_MODELOS; False = solo reglas; True = híbrido.
-    usar_juez: None = si Ollama está disponible; False/True = forzado.
-    contexto: el mensaje anterior de la persona (ayuda al LLM a entender la situación)."""
+def analizar(texto, usar_modelos=None, usar_zero_shot=None):
+    """Análisis con REGLAS y MODELOS (sin LLM; su opinión se suma con aplicar_juez).
+    usar_modelos: None = según USAR_MODELOS; False = solo reglas; True = híbrido.
+    usar_zero_shot: None = solo si no hay LLM (el LLM hace mejor su trabajo, los matices)."""
     original = texto
     texto = expandir_abreviaturas(texto)      # "q" -> "que", "pq" -> "porque"...
     blob = TextBlob(texto)
@@ -478,12 +544,15 @@ def analizar(texto, usar_modelos=None, usar_juez=None, contexto=None):
 
     # PASO 3b: MODELOS de lenguaje y FUSIÓN con las reglas
     usar = USAR_MODELOS if usar_modelos is None else usar_modelos
-    ml = modelos.analizar_ml(texto) if usar and idioma == "es" else None
+    zero_shot = (not llm.usar()) if usar_zero_shot is None else usar_zero_shot
+    ml = modelos.analizar_ml(texto, zero_shot=zero_shot) if usar and idioma == "es" else None
+    ironico = False
     if ml:
         top = lambda d, k=3: ", ".join(f"{e} {v:.2f}" for e, v in
                                        sorted(d.items(), key=lambda x: x[1], reverse=True)[:k])
         traza.append(f"modelo pysentimiento (familia): {top(ml['familias'])}")
-        traza.append(f"modelo zero-shot (matices): {top(ml['matices'])}")
+        if ml["matices"]:
+            traza.append(f"modelo zero-shot (matices): {top(ml['matices'])}")
 
         no_neutral = 1 - ml["neutral"]
         suma_ml = sum(ml["emociones"].values()) or 1.0
@@ -523,38 +592,9 @@ def analizar(texto, usar_modelos=None, usar_juez=None, contexto=None):
         porcentajes = pct_reglas
         fuente = "reglas"
 
-    # PASO 3c: el LLM como JUEZ DE PERSPECTIVA. Las reglas y los modelos detectan
-    # emociones que aparecen en el texto; el LLM entiende la situación y dice qué
-    # siente QUIEN ESCRIBE ("mi hermano está enfadado conmigo" -> culpa, preocupación)
-    # y qué sienten los demás. Su opinión pesa la mitad.
-    juez = None
-    # Si las reglas ven que la emoción del texto es de OTRA persona ("mi novia está
-    # triste") y ninguna de quien escribe, los modelos están midiendo la emoción de esa
-    # otra persona (miden la que transmite el texto): entonces el juez pesa mucho más.
-    peso_juez = PESO_JUEZ_OTRAS if (otras and total == 0) else PESO_JUEZ
-    if (llm.usar() if usar_juez is None else usar_juez) and idioma == "es":
-        juez = llm.juzgar(original, contexto, pistas=otras)
-    if juez is not None:
-        pct_juez = {e: 0.0 for e in EMOCIONES}
-        for item in juez["emociones"]:
-            pct_juez[item["emocion"]] += item["intensidad"]
-        suma_juez = sum(pct_juez.values())
-        traza.append("LLM (quien escribe): " + (", ".join(
-            f"{i['emocion']} {i['intensidad']:.1f}" for i in juez["emociones"]) or "sin emoción")
-            + f" — «{juez['analisis']}»")
-        if suma_juez > 0:
-            pct_juez = {e: v / suma_juez * 100 for e, v in pct_juez.items()}
-            if sum(porcentajes.values()) == 0:
-                porcentajes = pct_juez
-            else:
-                porcentajes = {e: (1 - peso_juez) * porcentajes[e] + peso_juez * pct_juez[e]
-                               for e in porcentajes}
-        elif total == 0:
-            porcentajes = {e: 0.0 for e in porcentajes}   # nadie ve emoción de quien escribe
-        for o in juez["otras_personas"]:
-            if all(x["emocion"] != o["emocion"] for x in otras):
-                otras.append(o)
-        fuente += " + LLM (perspectiva)"
+    # (El LLM como juez de perspectiva se aplica DESPUÉS, con aplicar_juez(): así el
+    #  análisis y la respuesta salen de una sola llamada al LLM.)
+    ironico = bool(ml) and ironico
 
     porcentajes = dict(sorted(porcentajes.items(), key=lambda x: x[1], reverse=True))
     orden = list(porcentajes)
@@ -568,17 +608,14 @@ def analizar(texto, usar_modelos=None, usar_juez=None, contexto=None):
     if total:
         nivel = "baja" if intensidad < 0.15 else "media" if intensidad < 0.4 else "alta"
     elif hay_emocion:
-        if juez and juez["emociones"]:
-            confianza = max(i["intensidad"] for i in juez["emociones"])
-        else:
-            confianza = 1 - ml["neutral"] if ml else 0.5
+        confianza = 1 - ml["neutral"] if ml else 0.5
         nivel = "baja" if confianza < 0.6 else "media" if confianza < 0.85 else "alta"
     else:
         nivel = "nula"
 
     valencia, activacion, estado = _estado_afectivo(porcentajes)
     senales, distorsiones, riesgo, evid_riesgo = _marcadores(texto, normal, palabras, porcentajes)
-    if ml and ironico:
+    if ironico:
         senales.append(Senal(
             "ironia", "Ironía o sarcasmo",
             "Lo que dice no se corresponde con lo que quiere decir ('genial, otra vez lunes'). "
@@ -596,6 +633,7 @@ def analizar(texto, usar_modelos=None, usar_juez=None, contexto=None):
     resultado.fuente = fuente
     resultado.modelo = ml
     resultado.otras_personas = otras
+    resultado.normal, resultado.palabras, resultado.total_reglas = normal, palabras, total
     resultado.estilo = detectar_estilo(original)    # el estilo, sobre el texto tal cual
     resultado.apoyo_explicito = bool(re.search(
         r"\b(me (apoya|apoyan|apoyo|ayuda|ayudan|ayudo|escucha|escuchan|escucho|entiende)"

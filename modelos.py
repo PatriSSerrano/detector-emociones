@@ -124,10 +124,13 @@ def _zero_shot():
     return pipeline("zero-shot-classification", model=MODELO_ZERO_SHOT)
 
 
-def precargar():
-    """Carga los tres modelos de una vez (para no esperar en el primer mensaje)."""
+def precargar(zero_shot=True):
+    """Carga los modelos de una vez (para no esperar en el primer mensaje). El zero-shot
+    solo hace falta si no hay LLM: con LLM, los matices los decide él."""
     _silenciar()
-    _analizador_emociones(), _analizador_ironia(), _zero_shot()
+    _analizador_emociones(), _analizador_ironia()
+    if zero_shot:
+        _zero_shot()
 
 
 # Emociones que los modelos de emociones básicas suelen confundir con otras
@@ -138,7 +141,7 @@ def precargar():
 SIEMPRE = ["culpa", "verguenza", "ansiedad"]
 
 
-def analizar_ml(texto):
+def analizar_ml(texto, zero_shot=True):
     """
     Devuelve:
       {
@@ -162,6 +165,13 @@ def analizar_ml(texto):
     pi = _analizador_ironia().predict(texto).probas
     ironia = float(next((v for k, v in pi.items() if "iron" in k and "not" not in k), 0.0))
 
+    # Sin zero-shot (cuando el LLM se encarga de los matices): cada familia va a su
+    # emoción base. Ahorra 3-4 s por mensaje.
+    if not zero_shot:
+        emociones = {f: p for f, p in familias.items() if f != "otros"}
+        return {"familias": familias, "matices": {}, "emociones": emociones,
+                "neutral": neutral, "ironia": ironia}
+
     # 3) Candidatas para el zero-shot: los matices de las familias probables
     #    + las emociones que se suelen confundir. Menos candidatas = más rápido.
     probables = [f for f, p in familias.items() if f != "otros" and p >= 0.10]
@@ -183,12 +193,18 @@ def analizar_ml(texto):
     # 4) Combinación: la mitad viene del reparto jerárquico (la familia de
     #    pysentimiento repartida entre sus matices) y la otra mitad directamente
     #    del zero-shot, que así puede CORREGIR a la familia.
+    # Dentro de cada familia, la emoción BASE (la que da nombre a la familia) tiene
+    # ventaja: el zero-shot solo cambia el matiz si lo tiene claro. Sin esto, su
+    # sesgo hacia "amor" hacía que "he aprobado el carnet" saliera como amor.
     emociones = {}
     for familia, miembros in MATICES.items():
         presentes = [m for m in miembros if m in matices]
         suma = sum(matices[m] for m in presentes) or 1.0
         for m in presentes:
-            jerarquico = familias.get(familia, 0.0) * matices[m] / suma
+            reparto = matices[m] / suma
+            if len(presentes) > 1:
+                reparto = 0.5 * reparto + (0.5 if m == familia else 0.0)
+            jerarquico = familias.get(familia, 0.0) * reparto
             emociones[m] = 0.5 * jerarquico + 0.5 * matices[m] * (1 - neutral)
 
     return {"familias": familias, "matices": matices, "emociones": emociones,

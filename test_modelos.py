@@ -8,8 +8,11 @@ gracias a los modelos. Se saltan si pysentimiento/transformers no están instala
 
 import unittest
 
+import llm
 import modelos
 from analizador import POSITIVAS, analizar
+
+llm.USAR = False      # aquí se prueban los modelos (pysentimiento + zero-shot), sin el LLM
 
 
 @unittest.skipUnless(modelos.disponible(), "pysentimiento/transformers no instalados")

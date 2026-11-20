@@ -57,19 +57,25 @@ Las reglas y los clasificadores saben **qué** emoción hay, pero no entienden l
 las redacta un **LLM (modelo de lenguaje grande)** que corre en tu ordenador:
 
 ```
-tu mensaje ──► ANÁLISIS (reglas + modelos): emoción, distorsiones, estilo, riesgo
+tu mensaje ──► ANÁLISIS rápido (reglas + pysentimiento, < 1 s): distorsiones, estilo, riesgo
                    │
-                   ├─ riesgo alto ──────────────► mensaje de seguridad fijo (024)
+                   ├─ riesgo alto ──────────────► mensaje de seguridad fijo (024), al instante
                    │
-                   └─► LLM: instrucciones + conversación + notas del análisis ──► respuesta
+                   └─► UNA llamada al LLM (instrucciones + conversación + notas) que devuelve:
+                         {"analisis": quién siente qué  ─┐ (razonamiento corto)
+                          "respuesta": ...              ─┼─► se va escribiendo en el chat
+                          "emociones": ...               │
+                          "otras_personas": ...}        ─┴─► gráficos
                               │
-                              └─ ¿cumple las normas? no ─► se corrige 1 vez ─► si no, plantillas
+                              └─ ¿cumple las normas? no ─► se pide de nuevo ─► si no, plantillas
 ```
 
 - **[`llm.py`](llm.py)** le pasa al modelo tres cosas: unas **instrucciones fijas** (*system
   prompt*: habla con su estilo, tacos sí, insultos no, sé objetivo, sin falsos ánimos, una sola
   pregunta), **la conversación entera** y unas **notas del análisis** de tu último mensaje
-  (emoción, distorsiones, si usas *bro* o *xoxo*, si hablas de usted…).
+  (pistas de emoción, distorsiones, si usas *bro* o *xoxo*, si hablas de usted…).
+- [`conversacion.py`](conversacion.py) junta todo el turno (análisis, LLM, fusión y respuesta).
+  Lo usan tanto la web como la terminal.
 - **Ejemplos dentro del prompt** (*few-shot*): a los modelos pequeños les ayuda mucho más
   **ver** cómo responder que leer normas. Efecto secundario: copiaba el *"bro"* de los ejemplos
   aunque no lo hubieras dicho, así que las notas le prohíben usar vocativos que no uses tú.
@@ -133,7 +139,46 @@ Lo que se probó y **no** funcionó: la *calibración contextual* del zero-shot 
 modelo elige ante un texto neutro). Ante *"Hoy es un día normal"* casi nunca elige "soledad", así que
 al dividir, la soledad se disparaba aún más. Se descartó.
 
-**Coste**: el juez añade unos segundos, así que cada mensaje tarda unos 25-30 s en total en CPU.
+## Velocidad: de 25-30 s a unos 5 s por mensaje
+
+Medido paso a paso (antes de optimizar, todo en CPU):
+
+| Paso | Antes |
+|---|---|
+| Reglas + pysentimiento | 0,2-0,5 s |
+| Zero-shot | 2,7-4 s |
+| LLM juez (qué siente quien escribe) | 12-14 s |
+| LLM respuesta | 7-8 s |
+
+Qué se hizo, y por qué:
+
+1. **Una sola llamada al LLM** en vez de dos (juez + respuesta). Antes de escribir, el modelo
+   tiene que **leer todo el prompt** (más de 1.000 *tokens*). Ollama guarda lo leído (la **caché
+   KV**) y lo reaprovecha si la siguiente petición **empieza igual**. Con dos llamadas distintas
+   alternándose, la caché se perdía cada vez. Con una sola, la conversación solo crece por el final
+   y en cada mensaje lee únicamente lo nuevo: **de 13 s a 2 s leyendo**.
+2. **Streaming**: la respuesta aparece en el chat **palabra a palabra** según se genera (el
+   servidor envía una línea JSON por evento), y los gráficos se actualizan en cuanto está el análisis.
+3. **La gráfica integrada (Vulkan)**: Ollama descarta por defecto las gráficas integradas.
+   Activándola, leer el prompt va **casi 4 veces más rápido** (320 frente a 85 *tokens*/s). Escribir
+   va igual (17 *tokens*/s: en un portátil depende de la memoria). Para no cambiar la configuración
+   de Windows, **la app arranca su propio Ollama** con la GPU en el puerto 11435 y lo cierra al
+   salir. Si no puede, usa el Ollama normal. Se desactiva con `EMOCIONES_SIN_GPU=1`.
+4. **Zero-shot solo sin LLM**: el LLM decide mejor los matices, y así desaparece también el sesgo
+   del zero-shot del camino principal. Ahorra 3-4 s y memoria.
+
+Resultado (Ryzen AI 7 350 + Radeon 860M): **la primera palabra sale en 2-5 s** y la respuesta
+completa en unos 5-10 s. Los mensajes de riesgo, al instante.
+
+Lo que se probó por el camino:
+- **Respuesta antes que el razonamiento**: la primera palabra salía antes, pero la respuesta entendía
+  peor (*"le cogí la moto sin permiso y la rayé"* → *"debe ser frustrante que te haya pasado"*). Se
+  dejó un razonamiento **muy corto** (máx. 12 palabras) delante: 1 s más, mucho mejor comprensión.
+- **Precalentar las instrucciones**: con Gemma 3, Ollama no reaprovecha unas instrucciones ya leídas
+  si el mensaje que sigue es distinto (probado: 10,8 s otra vez). Por eso la GPU era la clave para el
+  primer mensaje.
+- **Ejemplos copiados**: con un mensaje casi igual a un ejemplo del prompt, el modelo copiaba su
+  respuesta (*"si el curro te tiene así"*). Se cambió el ejemplo y se le prohíbe reutilizar sus frases.
 
 ## Ejemplo en la terminal
 
@@ -177,7 +222,7 @@ python main.py --texto "Me siento sola..."       # un texto
 python main.py --sesion ejemplos/sesion_ejemplo.txt   # evolución de una sesión
 python main.py --demo                            # ejemplos
 python main.py --demo --traza                    # muestra cómo se calcula cada punto
-python -m unittest -v                            # tests
+python -m unittest -v                            # 81 tests (~1,5 min con la GPU)
 ```
 
 ## Qué habilidades del psicólogo simula
@@ -336,13 +381,15 @@ Con `--traza` se ve cada paso del cálculo, por ejemplo:
 
 - **Los modelos se equivocan** y no explican *por qué*. Por eso el informe enseña qué opina cada
   fuente, y el riesgo lo deciden siempre las reglas.
-- **Recursos**: unos 2 GB de descarga la primera vez (PyTorch + 3 modelos) y unos 3 s por mensaje en
-  CPU. Con `--solo-reglas` es instantáneo, pero entiende menos.
+- **Recursos**: unos 2 GB de descarga la primera vez (PyTorch + modelos) más el LLM (3,3 GB). Con
+  `--solo-reglas` es instantáneo, pero entiende menos.
+- **La GPU integrada es un modo experimental de Ollama** (Vulkan). Si da problemas, se desactiva con
+  `EMOCIONES_SIN_GPU=1` y se usa la CPU (más lento: unos 10-15 s el primer mensaje).
 - **Privacidad**: todo se ejecuta en tu ordenador. Solo se usa internet para descargar los modelos la
   primera vez; los textos no se envían a ningún sitio.
 - **El LLM es pequeño** (4B parámetros) para que vaya en un portátil: a veces suena raro o se
-  salta alguna norma (el control de calidad recoge las más importantes). Tarda unos 10 s por
-  respuesta en CPU.
+  salta alguna norma (el control de calidad recoge las más importantes). Con la respuesta en
+  streaming, si el control descarta lo que ya se había escrito, se sustituye al terminar.
 - **Memoria de conversación**: un mensaje corto sin emoción clara **hereda la del anterior**
   (*"todo bro, no hay quesitos en clase"* sigue siendo enfado). Es una regla simple: si
   cambias de tema con un mensaje corto, puede arrastrar la emoción de antes.
@@ -356,7 +403,8 @@ Con `--traza` se ve cada paso del cálculo, por ejemplo:
 ```
 servidor.py          interfaz gráfica: servidor Flask + API del chat
 web/                 chat tipo WhatsApp y gráficos (HTML, CSS, JavaScript)
-llm.py               respuestas redactadas por un LLM local (Ollama) con control de calidad
+conversacion.py      un turno completo: análisis + LLM (streaming) + fusión + respuesta
+llm.py               LLM local (Ollama): llamada única con streaming, GPU, control de calidad
 main.py              programa de terminal (consulta, texto, sesión, demo)
 analizador.py        motor de análisis y fusión reglas + modelos -> objeto Analisis
 modelos.py           modelos de lenguaje: pysentimiento (familia, ironía) y zero-shot (matices)
@@ -367,10 +415,10 @@ estilo.py            detección del estilo (registro, tú/usted, expresiones, te
 lexico.py            emociones, pesos, modelo circumplejo, negaciones, intensificadores
 marcadores.py        marcadores lingüísticos, distorsiones cognitivas y riesgo
 utils.py             normalización, abreviaturas ("q" -> "que") y búsqueda de expresiones
-test_analizador.py   56 tests de las reglas, la conversación y quién siente qué (deterministas)
-test_servidor.py     8 tests de la API del chat
+test_analizador.py   57 tests de las reglas, la conversación y quién siente qué (deterministas)
+test_servidor.py     9 tests de la API del chat (streaming incluido)
 test_modelos.py      7 tests del modo híbrido, con frases que no están en ninguna lista
-test_llm.py          6 tests del LLM (nunca insulta, usted, 024, distingue quién siente qué…)
+test_llm.py          8 tests del LLM (streaming, nunca insulta, usted, 024, quién siente qué…)
 ejemplos/            sesión de ejemplo
 ```
 

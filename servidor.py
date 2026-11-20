@@ -11,20 +11,21 @@ Cómo funciona:
   - Todo es local: el servidor solo escucha en 127.0.0.1 (tu ordenador).
 """
 
+import json
+import queue
 import sys
 import threading
 import webbrowser
 from collections import Counter
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, request, send_from_directory
 
 import analizador
 import llm
 import marcadores as M
 import modelos
-from analizador import aplicar_contexto, analizar
+from conversacion import procesar
 from lexico import ICONOS, NOMBRES
-from respuesta import responder
 
 app = Flask(__name__, static_folder="web", static_url_path="")
 sesion = []                      # análisis de la conversación actual
@@ -89,18 +90,45 @@ def inicio():
 
 @app.post("/api/mensaje")
 def mensaje():
+    """Responde en STREAMING (un JSON por línea, "NDJSON"), según están listas las cosas:
+         {"tipo": "texto", "trozo": "..."}   un trozo de la respuesta, según se escribe
+         {"tipo": "analisis", ...}           el análisis y los gráficos
+         {"tipo": "fin", ...}                todo, con la respuesta final (si la escrita no
+                                             pasa el control de calidad, la sustituye)"""
     datos = request.get_json(silent=True) or {}
     texto = datos.get("texto", "").strip()
     # Nombre que la persona ha elegido para el chat (limpio y corto)
     nombre = " ".join(str(datos.get("nombre", "")).split())[:30] or None
     if not texto:
         return jsonify({"error": "Mensaje vacío"}), 400
-    with cerrojo:
-        contexto = sesion[-1].texto if sesion else None
-        a = aplicar_contexto(analizar(texto, contexto=contexto), sesion[-1] if sesion else None)
-        responder(a, turno=len(sesion), historial=sesion, nombre=nombre)
-        sesion.append(a)
-        return jsonify(_datos(a))
+
+    cola = queue.Queue()
+
+    def trabajar():
+        try:
+            with cerrojo:
+                def al_analizar(a):
+                    sesion.append(a)                 # para que la tarta y el tono lo incluyan
+                    cola.put({"tipo": "analisis", **_datos(a)})
+                    sesion.pop()
+
+                a = procesar(texto, list(sesion), nombre, al_analizar=al_analizar,
+                             al_escribir=lambda t: cola.put({"tipo": "texto", "trozo": t}))
+                sesion.append(a)
+                cola.put({"tipo": "fin", **_datos(a)})
+        except Exception as e:                       # que el navegador no se quede esperando
+            cola.put({"tipo": "error", "error": str(e)})
+        finally:
+            cola.put(None)
+
+    threading.Thread(target=trabajar, daemon=True).start()
+
+    def eventos():
+        while (evento := cola.get()) is not None:
+            yield json.dumps(evento, ensure_ascii=False) + "\n"
+
+    return Response(eventos(), mimetype="application/x-ndjson",
+                    headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
 
 @app.post("/api/reiniciar")
@@ -112,7 +140,8 @@ def reiniciar():
 
 @app.get("/api/estado")
 def estado():
-    return jsonify({"modelos": analizador.USAR_MODELOS, "llm": llm.usar(), "modelo_llm": llm.MODELO})
+    return jsonify({"modelos": analizador.USAR_MODELOS, "llm": llm.usar(), "modelo_llm": llm.MODELO,
+                    "procesador": llm.procesador() if llm.usar() else None})
 
 
 def main():
@@ -124,11 +153,14 @@ def main():
         except AttributeError:
             pass
     print("Preparando el sistema (la primera vez tarda un poco)...")
+    if llm.usar() and llm.arrancar_servidor_gpu():
+        print("· Ollama propio con la gráfica integrada (Vulkan) en el puerto", llm.PUERTO_GPU)
     if analizador.USAR_MODELOS:
-        modelos.precargar()
+        modelos.precargar(zero_shot=not llm.usar())
     if llm.usar():
         print(f"Cargando el LLM local ({llm.MODELO})...")
         llm.precalentar()
+        print(f"· El LLM funciona en: {llm.procesador()}")
     else:
         print("(Sin Ollama: las respuestas se harán con plantillas.)")
     url = "http://127.0.0.1:5000"

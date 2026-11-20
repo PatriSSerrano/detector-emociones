@@ -252,6 +252,10 @@ class TestConversacion(unittest.TestCase):
         _, r = self.conversar(["estoy muy triste", "no lo sé"])
         self.assertIn("No pasa nada si no lo sabes", r[1])
 
+    def test_no_recoge_insultos(self):
+        _, r = self.conversar(["estoy hasta el coño", "es que es un imbécil"])
+        self.assertNotIn("imbécil", r[1])
+
     def test_deseo_no_se_duplica(self):
         _, r = self.conversar(["estoy hasta el coño", "no hay quesitos", "yo solo quiero un buen bicep"])
         self.assertIn("solo quieres un buen bicep", r[2])
