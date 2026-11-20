@@ -26,22 +26,28 @@ conversación.
 python servidor.py          # se abre http://127.0.0.1:5000 en el navegador
 ```
 
-![Chat tipo WhatsApp con gráficos de emociones arriba](docs/captura-chat.jpg)
+![Chat tipo WhatsApp con gráficos de emociones arriba](docs/captura-chat.png)
 
+- **Al abrirlo eliges el nombre del chat**: es el nombre de la persona con la que hablas (se
+  presenta así y el LLM responde con ese nombre). Pulsando sobre el nombre se cambia.
 - **Abajo, el chat**: como hablar con un amigo por WhatsApp (burbujas, *"escribiendo…"*, ✓✓).
-  Debajo de cada respuesta, **ⓘ análisis** muestra qué ha detectado el sistema y quién ha
-  redactado la respuesta.
+  Debajo de cada respuesta, **análisis** muestra qué ha detectado el sistema y quién ha
+  redactado la respuesta. El sistema no usa emojis (los tuyos se respetan).
 - **Arriba, fuera del "móvil"**, tres gráficos que se actualizan con cada mensaje:
 
-| Gráfico | Qué muestra | Por qué esta forma |
+| Gráfico | Qué muestra | Cómo se comporta |
 |---|---|---|
 | **Ahora** | La emoción del último mensaje, el estado (valencia × activación) y un medidor de intensidad. Si hay riesgo, una alerta con el 024 | Es **un solo dato**: una tarjeta se lee mejor que un gráfico |
-| **Tono de la conversación** | La valencia de cada mensaje, de *desagradable* (−1) a *agradable* (+1). Al pasar el ratón: mensaje, emoción y texto | Es una **evolución en el tiempo**: una línea sobre la referencia "neutro" |
-| **Emociones en la conversación** | Qué emociones se han acumulado en toda la charla, de mayor a menor | Para **comparar partes**, las barras ordenadas se leen mejor que un gráfico circular |
+| **Tono de la conversación** | La valencia de cada mensaje, de *desagradable* (−1) a *agradable* (+1). Al pasar el ratón: mensaje, emoción y texto | **Avanza**: cada mensaje añade un punto y la línea se traza hasta él; los anteriores no se mueven ni se reescalan. Cuando no caben, la serie se desliza a la izquierda |
+| **Emociones en la conversación** | Gráfico de **tarta** con las emociones acumuladas en la charla (la principal y las secundarias de cada mensaje), con leyenda de nombre y porcentaje | Las porciones **cambian de tamaño poco a poco**. Cada emoción **conserva su color** toda la conversación. Hasta 5 emociones + "Otras" |
 
-Los gráficos usan **un solo color** (las emociones ya se distinguen por el nombre y el icono),
-tienen **modo oscuro** automático y están dibujados en SVG/HTML sin librerías externas: todo
-funciona **sin internet**. Por dentro, [`servidor.py`](servidor.py) (Flask) recibe cada mensaje,
+Detalles de diseño:
+- **El color sigue a la emoción, no a su posición**: si la ira es azul, sigue siendo azul aunque
+  pase de ser la primera a la tercera. Por eso hay como máximo 8 colores (una paleta validada para
+  daltonismo) y lo que no cabe va a "Otras", en gris.
+- **La identidad nunca va solo por color**: la leyenda siempre dice nombre y porcentaje.
+- **Modo oscuro** automático y todo dibujado en SVG/HTML sin librerías externas: funciona
+  **sin internet**. Por dentro, [`servidor.py`](servidor.py) (Flask) recibe cada mensaje,
 lo analiza, pide la respuesta y devuelve los datos que pinta [`web/app.js`](web/app.js).
 
 ## Respuestas redactadas por un LLM local (Ollama)
@@ -67,6 +73,9 @@ tu mensaje ──► ANÁLISIS (reglas + modelos): emoción, distorsiones, estil
 - **Ejemplos dentro del prompt** (*few-shot*): a los modelos pequeños les ayuda mucho más
   **ver** cómo responder que leer normas. Efecto secundario: copiaba el *"bro"* de los ejemplos
   aunque no lo hubieras dicho, así que las notas le prohíben usar vocativos que no uses tú.
+- **No supone el género**: al principio respondía *"te sientes muy frustrada"* sin que la persona
+  lo hubiera dicho. Ahora usa formas neutras (*"estás con mucha frustración"*) salvo que la
+  persona lo deje claro (*"estoy rayada"*).
 - **Control de calidad**: si la respuesta insulta, dramatiza (*"qué horror"*), se salta el
   usted o tiene palabras mal escritas, se le pide que la corrija; si sigue mal, se usa la de
   plantillas. Los emojis tristes se quitan siempre.
@@ -316,7 +325,7 @@ lexico.py            emociones, pesos, modelo circumplejo, negaciones, intensifi
 marcadores.py        marcadores lingüísticos, distorsiones cognitivas y riesgo
 utils.py             normalización, abreviaturas ("q" -> "que") y búsqueda de expresiones
 test_analizador.py   51 tests de las reglas y la conversación (deterministas)
-test_servidor.py     6 tests de la API del chat
+test_servidor.py     8 tests de la API del chat
 test_modelos.py      7 tests del modo híbrido, con frases que no están en ninguna lista
 test_llm.py          5 tests de las respuestas del LLM (propiedades: nunca insulta, usted, 024…)
 ejemplos/            sesión de ejemplo

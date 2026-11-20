@@ -39,7 +39,9 @@ def _datos(a):
     """Lo que necesita el navegador para pintar la burbuja y los gráficos."""
     top = [_emocion(e, p) for e, p in a.porcentajes.items() if p >= 1][:5]
 
-    # Emociones acumuladas en toda la conversación (cada mensaje cuenta lo mismo)
+    # Emociones acumuladas en toda la conversación (cada mensaje cuenta lo mismo).
+    # Solo lo RELEVANTE de cada mensaje (principal y secundarias, >= 15 %): si no, los
+    # porcentajes pequeños que los modelos dan a todo inflan "Otras" en la tarta.
     total = Counter()
     for m in sesion:
         if m.dominante == "neutral":
@@ -47,9 +49,11 @@ def _datos(a):
         if m.emocion_por_contexto:
             total[m.dominante] += 100          # su emoción viene del contexto
         else:
-            total.update({e: p for e, p in m.porcentajes.items() if p > 0})
+            relevantes = {e: p for e, p in m.porcentajes.items() if p >= 15} or {m.dominante: 100}
+            suma_m = sum(relevantes.values())
+            total.update({e: p / suma_m * 100 for e, p in relevantes.items()})
     suma = sum(total.values()) or 1
-    acumulado = [_emocion(e, p / suma * 100) for e, p in total.most_common(6)]
+    acumulado = [_emocion(e, p / suma * 100) for e, p in total.most_common() if p > 0]
 
     return {
         "respuesta": a.respuesta,
@@ -83,12 +87,15 @@ def inicio():
 
 @app.post("/api/mensaje")
 def mensaje():
-    texto = (request.get_json(silent=True) or {}).get("texto", "").strip()
+    datos = request.get_json(silent=True) or {}
+    texto = datos.get("texto", "").strip()
+    # Nombre que la persona ha elegido para el chat (limpio y corto)
+    nombre = " ".join(str(datos.get("nombre", "")).split())[:30] or None
     if not texto:
         return jsonify({"error": "Mensaje vacío"}), 400
     with cerrojo:
         a = aplicar_contexto(analizar(texto), sesion[-1] if sesion else None)
-        responder(a, turno=len(sesion), historial=sesion)
+        responder(a, turno=len(sesion), historial=sesion, nombre=nombre)
         sesion.append(a)
         return jsonify(_datos(a))
 

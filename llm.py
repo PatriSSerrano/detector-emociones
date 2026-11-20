@@ -24,7 +24,9 @@ import re
 import urllib.error
 import urllib.request
 
-from expresiones import ESPEJO_TACOS
+import unicodedata
+
+from expresiones import ESPEJO_EMOJIS, ESPEJO_TACOS
 from lexico import NOMBRES
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
@@ -36,11 +38,10 @@ educativa: no diagnostiques ni des tratamientos.
 
 Cómo respondes:
 1. Habla EXACTAMENTE con el estilo de la persona: su mismo registro (formal o coloquial), tú o \
-usted, sus expresiones, sus vocativos (bro, tía, tío...), sus despedidas (xoxo, besis...) y sus \
-emojis. Si dice tacos, tú también puedes decirlos con naturalidad.
+usted, sus expresiones, sus vocativos (bro, tía, tío...) y sus despedidas (xoxo, besis...). Si \
+dice tacos, tú también puedes decirlos con naturalidad. No uses emojis.
 2. No copies su negatividad: nunca repitas insultos (ni hacia ella ni hacia otros), no uses \
-palabras absolutas como "siempre", "nunca", "nada" o "nadie", no exageres su malestar y no uses \
-emojis tristes o de enfado.
+palabras absolutas como "siempre", "nunca", "nada" o "nadie" y no exageres su malestar.
 3. Sé objetivo: básate en lo que ha dicho, separa los hechos de las suposiciones y no des falsos \
 ánimos ("seguro que todo irá bien"). No des consejos que no te ha pedido.
 4. Entiende la conversación entera. Si te contesta a una pregunta, recoge su respuesta. Si hace \
@@ -49,9 +50,14 @@ una broma, puedes seguirla sin perder el hilo.
 Termina con UNA sola pregunta abierta que no hayas hecho ya.
 6. Si cambia de tema o quita importancia con una broma, puedes seguirle la broma, pero vuelve con \
 tacto a lo que te contó antes.
-7. Escribe solo tu respuesta, sin comillas, sin explicaciones y sin mencionar las notas.
+7. No supongas si es hombre o mujer. Si no lo ha dejado claro (por ejemplo, "estoy rayada"), usa \
+formas neutras: "estás con mucha frustración", no "estás frustrada" ni "estás frustrado".
+8. Escribe solo tu respuesta, sin comillas, sin explicaciones y sin mencionar las notas.
 
 Ejemplos de cómo responder:
+
+Persona: estoy hasta el coño
+Tú: Uf, vale, se nota que estás hasta el coño. ¿Qué ha pasado para que llegues a este punto?
 
 Persona: uf bro estoy hasta los huevos del curro
 Tú: Uf, bro, normal que estés hasta los huevos si el curro te tiene así. ¿Qué es lo que más te está quemando?
@@ -60,7 +66,7 @@ Persona: Buenas tardes. Le escribo porque últimamente me siento muy cansada.
 Tú: Buenas tardes, gracias por escribirme. Por lo que me cuenta, lleva un tiempo muy cansada. ¿Desde cuándo lo nota?
 
 Persona: tía mi novio me ha dejado 😭
-Tú: Ay, tía, lo siento mucho. Que te dejen duele, y es normal que estés así. ¿Cómo ha sido? 🫂
+Tú: Ay, tía, lo siento mucho. Que te dejen duele, y es normal que estés así. ¿Cómo ha sido?
 
 Persona (antes había dicho que estaba hasta el coño): pues nada bro, que no hay quesitos en clase jaja
 Tú: Jaja, vale, bro, lo de los quesitos tiene delito. Pero antes estabas hasta el coño, ¿es solo eso o hay algo más?
@@ -70,6 +76,10 @@ Tú: ¡Qué pasada, enhorabuena! Normal que estés flipando. ¿Qué es lo primer
 
 # Emojis que nunca debe usar (la persona puede, el sistema no: no se amplifica el malestar)
 EMOJIS_NEGATIVOS = set("😭😢😞😔💔😡😠🤬😨😰😱🤢🤮😖😩😫☹🙁😿")
+
+
+def _es_emoji(c):
+    return (unicodedata.category(c) == "So" and ord(c) > 0x2100) or c in "️‍"
 # Frases que dramatizan
 DRAMATIZAR = re.compile(r"\b(qu[eé] horror|horrible|terrible|lo peor|devastador\w*|espantos\w*)\b", re.I)
 # Formas de "tú": no pueden aparecer si la persona habla de usted
@@ -146,7 +156,7 @@ def notas_del_analisis(a):
         estilo.append(f"usa «{e.cierre}» (puedes usarlo tú también)")
     if e.vulgaridad:
         estilo.append("dice tacos (puedes decirlos)" if ESPEJO_TACOS else "dice tacos (tú no los digas)")
-    if e.emojis:
+    if e.emojis and ESPEJO_EMOJIS:
         estilo.append("usa emojis (puedes usar alguno, nunca tristes ni de enfado)")
     else:
         estilo.append("no uses emojis")
@@ -167,7 +177,10 @@ def _limpiar(texto):
     texto = texto.strip().strip('"«»').strip()
     texto = re.sub(r"^\s*(psic[oó]logo|terapeuta|respuesta|t[uú])\s*:\s*", "", texto, flags=re.I)
     texto = texto.replace("**", "").replace("*", "")
-    texto = "".join(c for c in texto if c not in EMOJIS_NEGATIVOS)     # nunca emojis tristes
+    if ESPEJO_EMOJIS:
+        texto = "".join(c for c in texto if c not in EMOJIS_NEGATIVOS)  # nunca emojis tristes
+    else:
+        texto = "".join(c for c in texto if not _es_emoji(c))            # ningún emoji
     return re.sub(r"\s+", " ", texto).strip()
 
 
@@ -189,12 +202,17 @@ def _problema(texto, a):
     return None
 
 
-def responder(a, historial=()):
+def responder(a, historial=(), nombre=None):
     """Respuesta del LLM, o None si no está disponible / falla / no pasa el control.
-    historial: análisis anteriores, cada uno con su .texto y su .respuesta."""
+    historial: análisis anteriores, cada uno con su .texto y su .respuesta.
+    nombre: cómo ha llamado la persona al chat (el LLM se presenta así)."""
     if a.riesgo == "alto":
         return None                            # la seguridad la deciden las reglas
-    mensajes = [{"role": "system", "content": SYSTEM_PROMPT}]
+    sistema = SYSTEM_PROMPT
+    if nombre:
+        sistema += (f"\n\nTe llamas {nombre}: es el nombre que ha elegido la persona para este "
+                    "chat. Si te pregunta cómo te llamas, di ese nombre.")
+    mensajes = [{"role": "system", "content": sistema}]
     for h in historial[-10:]:                  # las últimas 10 intervenciones bastan
         mensajes.append({"role": "user", "content": h.texto})
         if h.respuesta:

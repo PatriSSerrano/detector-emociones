@@ -9,7 +9,7 @@
 <body>
   <!-- ============ PANEL DE EMOCIONES (fuera del "móvil") ============ -->
   <section class="panel" aria-label="Emociones de la conversación">
-    <article class="tarjeta" id="tarjeta-ahora">
+    <article class="tarjeta">
       <h2>Ahora</h2>
       <div id="ahora" class="ahora vacio">Escribe un mensaje para empezar</div>
     </article>
@@ -22,18 +22,18 @@
 
     <article class="tarjeta">
       <h2>Emociones en la conversación</h2>
-      <div id="grafico-acumulado" class="barras"></div>
+      <div id="grafico-tarta" class="tarta"></div>
     </article>
   </section>
 
   <!-- ============ EL "MÓVIL" CON EL CHAT ============ -->
   <main class="movil">
     <header class="cabecera">
-      <div class="avatar" aria-hidden="true">🧠</div>
-      <div class="contacto">
-        <div class="nombre">Psico</div>
-        <div class="estado-contacto" id="estado-contacto">en línea</div>
-      </div>
+      <div class="avatar" id="avatar" aria-hidden="true">?</div>
+      <button class="contacto" id="cambiar-nombre" title="Cambiar el nombre del chat">
+        <span class="nombre" id="nombre-chat">Chat</span>
+        <span class="estado-contacto" id="estado-contacto">en línea</span>
+      </button>
       <button class="boton-icono" id="reiniciar" title="Nueva conversación" aria-label="Nueva conversación">
         <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor"
           d="M12 5V2L7 6l5 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/></svg>
@@ -49,6 +49,16 @@
           d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
       </button>
     </form>
+
+    <!-- Ventana para elegir el nombre del chat -->
+    <div class="capa" id="capa-nombre" hidden>
+      <form class="dialogo" id="form-nombre" autocomplete="off">
+        <h3>¿Cómo quieres llamar a tu chat?</h3>
+        <p>Será el nombre de la persona con la que hablas.</p>
+        <input id="entrada-nombre" type="text" maxlength="30" placeholder="Por ejemplo: Alex" required>
+        <button type="submit">Empezar</button>
+      </form>
+    </div>
   </main>
 
   <div id="tooltip" class="tooltip" role="tooltip" hidden></div>

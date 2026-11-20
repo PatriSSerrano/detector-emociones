@@ -170,6 +170,9 @@ def expresiones_expandidas():
 # ---------------------------------------------------------------------------
 ESPEJO_TACOS = True
 
+# ¿El sistema usa emojis en sus respuestas? (los de la persona se respetan siempre)
+ESPEJO_EMOJIS = False
+
 # Eufemismos: misma cercanía y misma idea, sin el taco (si ESPEJO_TACOS = False)
 EUFEMISMOS = {}
 for _e in expandir("hasta {" + _HASTA_VULGAR + "}"):

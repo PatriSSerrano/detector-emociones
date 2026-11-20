@@ -201,11 +201,9 @@ class TestRespuesta(unittest.TestCase):
         r, _ = self.respuesta("Mañana tengo el examen y seguro que suspendo, no voy a poder")
         self.assertIn("todavía no ha pasado", r)
 
-    def test_emoji_solo_si_la_persona_los_usa(self):
-        con, _ = self.respuesta("Estoy muy feliz 🎉")
-        sin, _ = self.respuesta("Estoy muy feliz")
-        self.assertIn("🎉", con)
-        self.assertNotIn("🎉", sin)
+    def test_el_sistema_no_usa_emojis(self):
+        r, _ = self.respuesta("Estoy muy feliz 🎉😍")
+        self.assertFalse(any(ord(c) > 0x2100 and c not in "¿¡" for c in r), r)
 
     def test_no_usa_emojis_negativos(self):
         r, _ = self.respuesta("estoy fatal 😭😭")

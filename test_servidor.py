@@ -56,6 +56,17 @@ class TestServidor(unittest.TestCase):
         self.assertIn("024", d["respuesta"])
         self.assertTrue(d["analisis"]["recursos"])
 
+    def test_tarta_sin_ruido(self):
+        self.mandar("estoy hasta el coño")
+        d = self.mandar("estoy muy feliz con mis amigos")
+        total = sum(e["pct"] for e in d["conversacion"]["acumulado"])
+        self.assertAlmostEqual(total, 100, delta=1)
+        self.assertTrue(all(e["pct"] >= 5 for e in d["conversacion"]["acumulado"]))
+
+    def test_nombre_del_chat(self):
+        r = self.cliente.post("/api/mensaje", json={"texto": "hola", "nombre": "  Luna \n "})
+        self.assertEqual(r.status_code, 200)
+
     def test_mensaje_vacio(self):
         r = self.cliente.post("/api/mensaje", json={"texto": "   "})
         self.assertEqual(r.status_code, 400)

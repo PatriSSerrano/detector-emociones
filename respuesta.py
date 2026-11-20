@@ -460,8 +460,9 @@ def _respuesta_a_pregunta(a, anterior):
 
 
 def _emoji(a):
+    from expresiones import ESPEJO_EMOJIS
     e = a.estilo
-    if not e.emojis or e.registro == "formal":
+    if not ESPEJO_EMOJIS or not e.emojis or e.registro == "formal":
         return ""
     val = _valencia(a)
     if val == "positiva":
@@ -502,7 +503,7 @@ def generar_respuesta(a, turno=0, historial=()):
     return re.sub(r"\s{2,}", " ", texto)
 
 
-def responder(a, turno=0, historial=(), usar_llm=None):
+def responder(a, turno=0, historial=(), usar_llm=None, nombre=None):
     """
     Decide QUIÉN responde:
       1. Riesgo alto  -> mensaje de seguridad fijo (las reglas mandan).
@@ -515,7 +516,7 @@ def responder(a, turno=0, historial=(), usar_llm=None):
         texto, a.respuesta_de = plantilla, "seguridad"
     else:
         usar = llm.usar() if usar_llm is None else usar_llm
-        texto = llm.responder(a, historial) if usar else None
+        texto = llm.responder(a, historial, nombre=nombre) if usar else None
         if texto:
             a.respuesta_de = f"LLM ({llm.MODELO})"
         else:
